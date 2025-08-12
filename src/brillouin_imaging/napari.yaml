@@ -1,0 +1,40 @@
+name: brillouin-imaging
+display_name: Brillouin Imaging
+# use 'hidden' to remove plugin from napari hub search results
+visibility: public
+# see https://napari.org/stable/plugins/technical_references/manifest.html#fields for valid categories
+categories: ["Visualization"]
+contributions:
+  commands:
+    - id: brillouin-imaging.get_reader
+      python_name: brillouin_imaging._reader:napari_get_reader
+      title: Open data with Brillouin Imaging
+    - id: brillouin-imaging.sample_data_drosophila
+      python_name: brillouin_imaging._sample_data:sample_data_drosophila
+      title: Load sample data from a spontaneous line-scanning Brillouin microscope  
+    - id: brillouin-imaging.sample_data_zfeye
+      python_name: brillouin_imaging._sample_data:sample_data_zfeye
+      title: Load sample data from spontaneous confocal Brillouin microscope
+    - id: brillouin-imaging.sample_data_zfSBS
+      python_name: brillouin_imaging._sample_data:sample_data_zfSBS
+      title: Load sample data from a pulsed stimulated Brillouin microscope
+    - id: brillouin-imaging.sample_data_beadsFTBM
+      python_name: brillouin_imaging._sample_data:sample_data_beadsFTBM
+      title: Load sample data from a FTBM Brillouin microscope
+  readers:
+    - command: brillouin-imaging.get_reader
+      accepts_directories: true
+      filename_patterns: ['*.brim.zip', '*.brim.zarr']
+  sample_data:
+    - command: brillouin-imaging.sample_data_drosophila
+      display_name: drosophila LSBM
+      key: sampledata.drosophila
+    - command: brillouin-imaging.sample_data_zfeye
+      display_name: zebrafish eye confocal
+      key: sampledata.zfeye
+    - command: brillouin-imaging.sample_data_zfSBS
+      display_name: zebrafish notochord SBS
+      key: sampledata.zfSBS
+    - command: brillouin-imaging.sample_data_beadsFTBM
+      display_name: oil beads FTBM
+      key: sampledata.beadsFTBM
