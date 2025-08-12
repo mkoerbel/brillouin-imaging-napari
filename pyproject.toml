@@ -3,6 +3,7 @@ name = "brillouin-imaging"
 dynamic = ["version"]
 description = "A plugin to work with brim files, which contain Brillouin imaging data"
 license = {file = "LICENSE"}
+readme = "README.md"
 authors = [
   {name = "Carlo Bevilacqua"},
   {email = "carlo.bevilacqua@embl.de"},
@@ -24,7 +25,7 @@ classifiers = [
     "Topic :: File Formats",
     "Topic :: Scientific/Engineering",
 ]
-keywords = ["Brillouin microscopy"]
+keywords = ["Brillouin imaging", "brimfile"]
 requires-python = ">=3.10"
 dependencies = [
     "numpy",
@@ -43,6 +44,10 @@ testing = [
     "napari",
     "pyqt5",
 ]
+
+[project.urls]
+Repository = "https://github.com/prevedel-lab/brillouin-imaging-napari"
+Issues = "https://github.com/prevedel-lab/brillouin-imaging-napari/issues"
 
 [project.entry-points."napari.manifest"]
 brillouin-imaging = "brillouin_imaging:napari.yaml"
