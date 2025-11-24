@@ -175,7 +175,17 @@ def create_brim_widget(file: brim.File):
         scale = tuple(x.value for x in px_size)
 
         napari.current_viewer().add_layer(
-            napari.layers.Image(img, name=str(quantity_combo.value), scale=scale, units=px_size[0].units)
+            napari.layers.Image(
+                img, 
+                name=str(quantity_combo.value), 
+                scale=scale, 
+                units=px_size[0].units,
+                metadata={
+                        'is_brimfile': True,
+                        'brimfile': file, # change to file itself
+                        'Data_group': d.get_index(),
+                        }
+                )
         )
 
         #trigger the data_combo changed event to reinitialize the widget
