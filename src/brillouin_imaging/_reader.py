@@ -5,7 +5,6 @@ It implements the Reader specification, but your plugin may choose to
 implement multiple readers or even other plugin contributions. see:
 https://napari.org/stable/plugins/building_a_plugin/guides.html#readers
 """
-from curses import meta
 import napari.layers
 import numpy as np
 import os
