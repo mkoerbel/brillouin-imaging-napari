@@ -21,6 +21,9 @@ contributions:
     - id: brillouin-imaging.sample_data_beadsFTBM
       python_name: brillouin_imaging._sample_data:sample_data_beadsFTBM
       title: Load sample data from a FTBM Brillouin microscope
+    - id: brillouin-imaging.show_spectrum
+      python_name: brillouin_imaging._spectra_viewer:ShowSpectrum
+      title: Show raw spectrum upon pixel click
   readers:
     - command: brillouin-imaging.get_reader
       accepts_directories: true
@@ -38,3 +41,6 @@ contributions:
     - command: brillouin-imaging.sample_data_beadsFTBM
       display_name: oil beads FTBM
       key: sampledata.beadsFTBM
+  widgets:
+    - command: brillouin-imaging.show_spectrum
+      display_name: Plot_Spectrum
