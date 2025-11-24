@@ -52,10 +52,6 @@ class ShowSpectrum(Container):
     def __init__(self, viewer: "napari.viewer.Viewer"):
         super().__init__()
         self._viewer = viewer
-        # use create_widget to generate widgets from type annotations
-        self._image_layer_combo = create_widget(
-            label="Selected Image", annotation="napari.layers.Image"
-        )
 
         # matplotlib figure
         self.fig, self.ax = plt.subplots()
@@ -73,14 +69,16 @@ class ShowSpectrum(Container):
 
         # connect your own callbacks
         self._connect_mouse_events()
+        self.native.layout().addWidget(FigureCanvas(self.fig))
 
-        # append into/extend the container with your widgets
+        self._invert_checkbox = CheckBox(text="Autoscale y-axis")
+        self._invert_checkbox.changed.connect(self._reset_autoscale)
+
         self.extend(
             [
-                self._image_layer_combo,
+                self._invert_checkbox,
             ]
         )
-        self.native.layout().addWidget(FigureCanvas(self.fig))
 
     def _connect_mouse_events(self):
         def on_click(viewer, event):
@@ -102,28 +100,49 @@ class ShowSpectrum(Container):
                 return
             else:
                 # Now handle the click
-                coord = layer.world_to_data(event.position)
-                self._load_spectrum(tuple(np.array(coord, dtype=int)))
+                coord = layer.world_to_data(event.position) 
+                coord = np.round(np.array(coord)).astype(int)
+                self._load_spectrum(tuple(coord), layer)
 
         # Attach callback to the viewer (not to each layer)
         self._viewer.mouse_drag_callbacks.append(on_click)
 
-    def _load_spectrum(self, coord):
-        image_layer = self._image_layer_combo.value
-        if image_layer is None:
-            return
+    def _reset_autoscale(self):
+        self.spectrum_ymax = 0
+        self.spectrum_ymin = 1E6
+
+    def _load_spectrum(self, coord, image_layer):
         file = image_layer.metadata['brimfile']
+        if image_layer.visible == False:
+            return
+        # check if coords are within image
+        image_shape = image_layer.data.shape
+        for i in range(len(image_shape)):
+            if (coord[i] < 0) | (coord[i] > image_shape[i]-1):
+                return
 
         # plot spectrum
         spectrum = file.get_data(image_layer.metadata['Data_group']).get_spectrum_in_image(coord)
-        
-        if self.spectrum_ymax < max(spectrum[0]):
-            self.spectrum_ymax = max(spectrum[0])
-        if self.spectrum_ymin > min(spectrum[0]):
-            self.spectrum_ymin = min(spectrum[0])
+        spectrum_sorted = np.array([spectrum[0], spectrum[1]])[:,np.lexsort(np.array([spectrum[0], spectrum[1]]))]
+        spectrum_sorted = spectrum_sorted[:,np.logical_not(np.isnan(spectrum_sorted[1]))]
+        if self.spectrum_ymax < max(spectrum_sorted[0]):
+            self.spectrum_ymax = max(spectrum_sorted[0])
+        if self.spectrum_ymin > min(spectrum_sorted[0]):
+            self.spectrum_ymin = min(spectrum_sorted[0])
         self.ax.clear()
-        self.ax.plot(spectrum[1], spectrum[0], color = "#454B50")
+        # Check if part of the spectrum is missing
+        frequ_diffs = np.diff(spectrum_sorted[1])
+        frequ_spacing = np.median(frequ_diffs)
+        frequ_jumps = np.where(frequ_diffs > 2*frequ_spacing)[0]
+        if len(frequ_jumps) == 0:
+            self.ax.plot(spectrum[1], spectrum[0], color = "#454B50")
+        else: # split 
+            frequ_jumps = np.concat([[0],frequ_jumps+1,[len(spectrum_sorted[1,:])]])      # 0 i, i j, j -1
+            for i in range(len(frequ_jumps)-1):
+                self.ax.plot(spectrum_sorted[1,frequ_jumps[i]:frequ_jumps[i+1]], spectrum_sorted[0,frequ_jumps[i]:frequ_jumps[i+1]], color = "#454B50")
         self.ax.set_xlabel('Frequency [{}]'.format(spectrum[3]), color='white')
         self.ax.set_ylabel('PSD', color='white')
-        self.ax.set_ylim(self.spectrum_ymin, self.spectrum_ymax)
+        if self._invert_checkbox.value == False:
+            self.ax.set_ylim(self.spectrum_ymin, self.spectrum_ymax)
+        self.ax.set_title('Spectrum of ' + image_layer.name + '\nat pixel [{},{},{}]'.format(coord[0],coord[1],coord[2]), color='White', fontsize = 12)
         self.fig.canvas.draw()

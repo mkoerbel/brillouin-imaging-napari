@@ -43,4 +43,4 @@ contributions:
       key: sampledata.beadsFTBM
   widgets:
     - command: brillouin-imaging.show_spectrum
-      display_name: Plot_Spectrum
+      display_name: Plot spectrum
