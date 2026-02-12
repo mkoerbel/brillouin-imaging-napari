@@ -100,6 +100,7 @@ def create_brim_widget(file: brim.File):
     dt_names = [x['custom_name'] for x in data_groups]
     ar_groups = []
     peak_types_choices = ('average', 'AntiStokes', 'Stokes')
+    quantity_map = {}
     
     # Create individual controls
     data_combo = ComboBox(label="Data group", name="data_groups", choices=dt_names)
@@ -121,11 +122,12 @@ def create_brim_widget(file: brim.File):
 
     def on_data_change(event):
         nonlocal ar_groups
-        ar_groups = get_current_data_group().list_AnalysisResults()
-        ar_list = [x["name"] for x in ar_groups]
+        ar_groups = get_current_data_group().list_AnalysisResults(retrieve_custom_name = True)
+        ar_list = [x["custom_name"] for x in ar_groups]
         analysis_results_combo.choices = ar_list
-        #trigger the analysis_results_combo changed event to update the controller
-        analysis_results_combo.changed.emit(None)
+        analysis_results_combo.value = analysis_results_combo.choices[0] if analysis_results_combo.choices else None
+        # call the analysis_results handler directly to update downstream controls
+        on_analysis_results_change(None)
     
     def on_analysis_results_change(event):
         d = get_current_data_group()
@@ -134,11 +136,25 @@ def create_brim_widget(file: brim.File):
         as_cls = brim.Data.AnalysisResults
         qts_aS = ar.list_existing_quantities(as_cls.PeakType.AntiStokes)
         qts_S = ar.list_existing_quantities(as_cls.PeakType.Stokes)
-        qts = tuple(set(qts_aS) | set(qts_S))
 
-        quantity_combo.choices = qts
-        #trigger the on_quantity changed event
-        quantity_combo.changed.emit(None)
+        # preserve order and uniqueness while merging quantities
+        seen = set()
+        qts = []
+        for q in (qts_aS + qts_S):
+            if q not in seen:
+                seen.add(q)
+                qts.append(q)
+
+        # display strings but keep a mapping to original objects
+        qts_display = [str(q) for q in qts]
+        quantity_map.clear()
+        for obj, disp in zip(qts, qts_display):
+            quantity_map[disp] = obj
+
+        quantity_combo.choices = qts_display
+        quantity_combo.value = quantity_combo.choices[0] if quantity_combo.choices else None
+        # call the quantity handler directly
+        on_quantity_change(None)
 
     def on_quantity_change(event):
         d = get_current_data_group()
@@ -148,10 +164,13 @@ def create_brim_widget(file: brim.File):
         pt = ar.list_existing_peak_types()
         if len(pt)>1:
             peak_types_combo.choices = peak_types_choices
+            peak_types_combo.value = peak_types_combo.choices[0]
         elif pt[0] == pt_cls.AntiStokes:
             peak_types_combo.choices = [peak_types_choices[1],]
+            peak_types_combo.value = peak_types_combo.choices[0]
         elif pt[0] == pt_cls.Stokes:
             peak_types_combo.choices = [peak_types_choices[2],]
+            peak_types_combo.value = peak_types_combo.choices[0]
         else:
             raise ValueError(f"{pt[0]} is not a valid PeakType")
    
@@ -164,11 +183,14 @@ def create_brim_widget(file: brim.File):
         px_size = None
         c_pt = peak_types_combo.value
         if c_pt == peak_types_choices[0]:
-            img, px_size = ar.get_image(quantity_combo.value, pt_cls.average)
+            q_obj = quantity_map.get(quantity_combo.value, quantity_combo.value)
+            img, px_size = ar.get_image(q_obj, pt_cls.average)
         elif c_pt == peak_types_choices[1]:
-            img, px_size = ar.get_image(quantity_combo.value, pt_cls.AntiStokes)
+            q_obj = quantity_map.get(quantity_combo.value, quantity_combo.value)
+            img, px_size = ar.get_image(q_obj, pt_cls.AntiStokes)
         elif c_pt == peak_types_choices[2]:
-            img, px_size = ar.get_image(quantity_combo.value, pt_cls.Stokes)
+            q_obj = quantity_map.get(quantity_combo.value, quantity_combo.value)
+            img, px_size = ar.get_image(q_obj, pt_cls.Stokes)
         else:
             raise ValueError(f"{peak_types_combo.value} is not a valid choice")        
         
@@ -177,7 +199,7 @@ def create_brim_widget(file: brim.File):
         napari.current_viewer().add_layer(
             napari.layers.Image(
                 img, 
-                name=str(quantity_combo.value), 
+                name=analysis_results_combo.value + '-' + str(quantity_combo.value), 
                 scale=scale, 
                 units=px_size[0].units,
                 metadata={
@@ -188,15 +210,18 @@ def create_brim_widget(file: brim.File):
                 )
         )
 
-        #trigger the data_combo changed event to reinitialize the widget
-        #TODO understand why some of the combos go blank after pressing the button and thus it is necessary to reinitialize
-        data_combo.changed.emit(None)
+        # reinitialize the widget by calling the handler directly
+        on_data_change(None)
 
     # Connect callbacks
     data_combo.changed.connect(on_data_change)
     analysis_results_combo.changed.connect(on_analysis_results_change)
     quantity_combo.changed.connect(on_quantity_change)
-    add_image_btn.changed.connect(on_add_image_btn_pressed)     
+    # prefer the clicked signal for buttons; fallback to changed if not present
+    try:
+        add_image_btn.clicked.connect(on_add_image_btn_pressed)
+    except Exception:
+        add_image_btn.changed.connect(on_add_image_btn_pressed)
 
     # Combine controls into a container
     container = Container(widgets=[data_combo, analysis_results_combo, quantity_combo, peak_types_combo, add_image_btn])
