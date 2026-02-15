@@ -28,21 +28,15 @@ References:
 
 Replace code below according to your needs.
 """
-from turtle import color
-from typing import TYPE_CHECKING
 
 from magicgui import magic_factory
 from magicgui.widgets import CheckBox, Container, create_widget
-from qtpy.QtWidgets import QHBoxLayout, QPushButton, QWidget
-from skimage.util import img_as_float
+from qtpy.QtWidgets import QHBoxLayout, QVBoxLayout, QPushButton, QCheckBox, QWidget, QLabel, QDoubleSpinBox, QTabWidget
+from qtpy.QtCore import Qt
 import brimfile as brim
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvas
 import numpy as np
-
-if TYPE_CHECKING:
-    import napari
-
 
 
 
@@ -63,22 +57,139 @@ class ShowSpectrum(Container):
         self.ax.tick_params(axis='y', colors='white')
         self.ax.yaxis.label.set_color('white')
         self.ax.xaxis.label.set_color('white')
-        self.ax.set_ylim(0,1)
+        self.ax.set_ylim(0,1)   # 37 41 49
         self.spectrum_ymax = 0
         self.spectrum_ymin = 1E6
 
         # connect your own callbacks
         self._connect_mouse_events()
-        self.native.layout().addWidget(FigureCanvas(self.fig))
 
-        self._invert_checkbox = CheckBox(text="Autoscale y-axis")
-        self._invert_checkbox.changed.connect(self._reset_autoscale)
+        # Tabs - add different widgets
+        tabs = QTabWidget()
+        tabs.setTabPosition(QTabWidget.TabPosition.North)
+        tabs.setMovable(True)
+        tabs.setDocumentMode(True)
+        tabs.tabBar().setDrawBase(False)
+        tabs.setStyleSheet("""
+            QTabBar::tab {
+                background: #3F4852;         /* Simple background color */
+                color: #D1D2D4;                 /* Text color */
+                padding: 6px 16px;
+                margin-right: 2px;           /* Space between tabs */
+                min-width: 80px;
+                border-bottom: none; /* remove the dividing line */
+                border: none;
+            }
+            QTabBar::tab:selected {
+                background: #58626D;         /* Background for selected tab */
+                color: #D1D2D4;
+            }
+            QTabBar::tab:!selected {
+                background: #3F4852;         /* No shading for unselected tabs */
+            }
+            QTabBar {
+                alignment: left;
+                qproperty-drawBase: 0;
+                background: transparent;
+            } 
+            QTabWidget::pane {
+                border: none;
+                background: transparent;
+            }
+            """)
 
-        self.extend(
-            [
-                self._invert_checkbox,
-            ]
-        )
+        # Spectrum Plotting tab
+        self._autoscale_checkbox = QCheckBox(text = 'Autoscale y-axis')
+        self._autoscale_checkbox.setChecked(True)
+        self._autoscale_checkbox.stateChanged.connect(self._reset_autoscale)
+
+        spectrum_plotting_widget = QWidget()
+        spectrum_plotting_layout = QVBoxLayout()
+        spectrum_plotting_widget.setLayout(spectrum_plotting_layout)
+        spectrum_plotting_layout.addWidget(FigureCanvas(self.fig))
+        spectrum_plotting_layout.addWidget(self._autoscale_checkbox)
+
+
+        # Spectral Image tab
+        spectral_image_widget = QWidget()
+        spectral_image_layout = QVBoxLayout()
+        spectral_image_layout.setAlignment(Qt.AlignTop)
+        spectral_image_widget.setLayout(spectral_image_layout)
+
+        self._spectral_image_text = QLabel(text='Create a spectral image by integrating the spectrum in a frequency range for each pixel.\nSelect the frequency range and click the button to create the spectral image.')
+        self._spectral_image_text.setAlignment(Qt.AlignCenter)
+        self._spectral_image_text.setWordWrap(True)
+        self._num_label1 = QLabel("Lower bound")
+        self._num_field1 = QDoubleSpinBox()
+        self._num_field1.setRange(-30, 30)
+        self._num_field1.setValue(-30)
+        self._num_field1.setSingleStep(0.1)
+        self._num_field1.setDecimals(2)
+        self._num_field1.setSuffix(" GHz")
+        self._num_field1.setMaximumWidth(150)
+
+        self._num_label2 = QLabel("Upper bound")
+        self._num_field2 = QDoubleSpinBox()
+        self._num_field2.setRange(-30, 30)
+        self._num_field2.setValue(30)
+        self._num_field2.setSingleStep(0.1)
+        self._num_field2.setDecimals(2)
+        self._num_field2.setSuffix(" GHz")
+        self._num_field2.setMaximumWidth(150)
+
+        self._create_btn = QPushButton("Create spectral image")
+        self._create_btn.clicked.connect(self._on_create_spectral_image)
+
+        spectral_image_layout.addWidget(self._spectral_image_text)
+        spectral_image_layout.addWidget(self._num_label1)
+        spectral_image_layout.addWidget(self._num_field1)
+        spectral_image_layout.addWidget(self._num_label2)
+        spectral_image_layout.addWidget(self._num_field2)
+        spectral_image_layout.addWidget(self._create_btn)
+        
+        # Regional Spectra tab
+        # Based on a labels layer, create average spectra and shift histograms for each present label
+        labels_widget = QWidget()
+        labels_layout = QVBoxLayout()
+        labels_widget.setLayout(labels_layout)
+        labels_text = QLabel(text='Futur implementation: Labels analysis\nSelect labels layer OR create layer\nShow average spectrum\nexplore quantity at reagion')
+        labels_layout.addWidget(labels_text)
+
+        # Add Widgets to tab
+        tabs.addTab(spectrum_plotting_widget, "Plot Spectrum at Pixel")
+        tabs.addTab(spectral_image_widget, "Create Spectral Image")
+        tabs.addTab(labels_widget, "Regional Spectra Analysis")
+
+        # Add Tabs widget to Napari widget
+        self.native.layout().addWidget(tabs)
+
+    def _on_create_spectral_image(self):
+        layer = self._viewer.layers.selection.active
+        if (layer is None) or layer.visible == False:
+                return
+        # Check metadata attribute
+        if (('is_brimfile', True) not in layer.metadata.items()):
+            return  # ignore all other layers
+        
+        file = layer.metadata['brimfile']
+        # go through every pixel and get sum intensity, then add to spectral image
+        # get baseline from Python fit to substract
+        image_PSD = file.get_data(layer.metadata['Data_group']).get_PSD_as_spatial_map() #[0] is intensities, [1] is frequencies
+        image_offset = file.get_data(layer.metadata['Data_group']).get_analysis_results().get_image(brim.Data.AnalysisResults.Quantity.Offset)[0][:,:,:,np.newaxis]
+        image_ampl = image_PSD[0] - image_offset
+        image_mask = (image_PSD[1] >= self._num_field1.value()) & (image_PSD[1] <= self._num_field2.value())
+        image_ampl = image_ampl * image_mask
+        spectral_img = np.sum(image_ampl, axis=-1)
+        
+        try:
+            self._viewer.add_image(
+                spectral_img, 
+                name=f'Spectral image from {self._num_field1.value()} to {self._num_field2.value()} GHz',
+                scale=layer.scale,
+                units=layer.units,
+                )
+        except Exception:
+            print("Failed to add spectral image layer")
 
     def _connect_mouse_events(self):
         def on_click(viewer, event):
@@ -139,10 +250,16 @@ class ShowSpectrum(Container):
         else: # split 
             frequ_jumps = np.concat([[0],frequ_jumps+1,[len(spectrum_sorted[1,:])]])      # 0 i, i j, j -1
             for i in range(len(frequ_jumps)-1):
-                self.ax.plot(spectrum_sorted[1,frequ_jumps[i]:frequ_jumps[i+1]], spectrum_sorted[0,frequ_jumps[i]:frequ_jumps[i+1]], color = "#454B50")
+                self.ax.plot(
+                    spectrum_sorted[1,frequ_jumps[i]:frequ_jumps[i+1]], 
+                    spectrum_sorted[0,frequ_jumps[i]:frequ_jumps[i+1]], 
+                    color = "#252931", 
+                    lw = 2)
         self.ax.set_xlabel('Frequency [{}]'.format(spectrum[3]), color='white')
         self.ax.set_ylabel('PSD', color='white')
-        if self._invert_checkbox.value == False:
+        if not self._autoscale_checkbox.isChecked():
             self.ax.set_ylim(self.spectrum_ymin, self.spectrum_ymax)
         self.ax.set_title('Spectrum of ' + image_layer.name + '\nat pixel [{},{},{}]'.format(coord[0],coord[1],coord[2]), color='White', fontsize = 12)
         self.fig.canvas.draw()
+
+    

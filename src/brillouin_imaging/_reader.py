@@ -12,7 +12,7 @@ import os
 import napari
 from napari.utils.notifications import show_info
 
-from magicgui.widgets import ComboBox, PushButton, Container
+from magicgui.widgets import ComboBox, PushButton, Container, Label
 
 import brimfile as brim
 
@@ -103,6 +103,9 @@ def create_brim_widget(file: brim.File):
     quantity_map = {}
     
     # Create individual controls
+    file_name = os.path.basename(file.filename).replace("_", "_\u200b") 
+    file_name_label = Label(value=f"File: {file_name}")
+    file_name_label.native.setWordWrap(True)
     data_combo = ComboBox(label="Data group", name="data_groups", choices=dt_names)
     analysis_results_combo = ComboBox(label="Analysis results", choices=[])
     quantity_combo = ComboBox(label="Quantity", choices=[])
@@ -202,6 +205,7 @@ def create_brim_widget(file: brim.File):
                 name=analysis_results_combo.value + '-' + str(quantity_combo.value), 
                 scale=scale, 
                 units=px_size[0].units,
+                colormap='turbo',
                 metadata={
                         'is_brimfile': True,
                         'brimfile': file, # change to file itself
@@ -224,7 +228,7 @@ def create_brim_widget(file: brim.File):
         add_image_btn.changed.connect(on_add_image_btn_pressed)
 
     # Combine controls into a container
-    container = Container(widgets=[data_combo, analysis_results_combo, quantity_combo, peak_types_combo, add_image_btn])
+    container = Container(widgets=[file_name_label,data_combo, analysis_results_combo, quantity_combo, peak_types_combo, add_image_btn])
 
     return container
 
