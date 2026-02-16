@@ -98,7 +98,7 @@ def reader_function(path):
     return [(None,)]
 
 
-def create_brim_widget(file: brim.File):
+def create_brim_widget(file: brim.File) -> Container:
     data_groups = file.list_data_groups(retrieve_custom_name=True)
     dt_names = [x['custom_name'] for x in data_groups]
     ar_groups = []

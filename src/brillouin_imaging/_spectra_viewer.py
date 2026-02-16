@@ -29,9 +29,14 @@ References:
 Replace code below according to your needs.
 """
 
+from cProfile import label
+from hmac import new
 from magicgui import magic_factory
 from magicgui.widgets import CheckBox, Container, create_widget
-from qtpy.QtWidgets import QHBoxLayout, QVBoxLayout, QPushButton, QCheckBox, QWidget, QLabel, QDoubleSpinBox, QTabWidget
+import napari
+import napari.utils
+import napari.utils.notifications
+from qtpy.QtWidgets import QHBoxLayout, QVBoxLayout, QPushButton, QCheckBox, QWidget, QLabel, QDoubleSpinBox, QTabWidget, QComboBox
 from qtpy.QtCore import Qt
 import brimfile as brim
 import matplotlib.pyplot as plt
@@ -100,7 +105,7 @@ class ShowSpectrum(Container):
 
         # Spectrum Plotting tab
         self._autoscale_checkbox = QCheckBox(text = 'Autoscale y-axis')
-        self._autoscale_checkbox.setChecked(True)
+        self._autoscale_checkbox.setChecked(False)
         self._autoscale_checkbox.stateChanged.connect(self._reset_autoscale)
 
         spectrum_plotting_widget = QWidget()
@@ -108,7 +113,6 @@ class ShowSpectrum(Container):
         spectrum_plotting_widget.setLayout(spectrum_plotting_layout)
         spectrum_plotting_layout.addWidget(FigureCanvas(self.fig))
         spectrum_plotting_layout.addWidget(self._autoscale_checkbox)
-
 
         # Spectral Image tab
         spectral_image_widget = QWidget()
@@ -152,16 +156,67 @@ class ShowSpectrum(Container):
         labels_widget = QWidget()
         labels_layout = QVBoxLayout()
         labels_widget.setLayout(labels_layout)
-        labels_text = QLabel(text='Futur implementation: Labels analysis\nSelect labels layer OR create layer\nShow average spectrum\nexplore quantity at reagion')
+
+        labels_text = QLabel(text='Region-based analysis of Brillouin images. Select labels layer from list. Analysis is then applied to active Brimfile layer.\n Show average spectrum, explore quantity at reagion')
+        labels_text.setAlignment(Qt.AlignCenter)
+        labels_text.setWordWrap(True)
         labels_layout.addWidget(labels_text)
+
+        labels_selection_layout = QHBoxLayout()
+        labels_layout.addLayout(labels_selection_layout)
+
+        self._labels_combobox = QComboBox()
+        # If new selection made, check if confirms.
+        labels_new_button = QPushButton("Create new labels layer")
+        labels_new_button.clicked.connect(self._create_labels_layer)
+        labels_selection_layout.addWidget(self._labels_combobox)
+        labels_selection_layout.addWidget(labels_new_button)
+
+        # Add analyse button - then check if layer is eligible?
+        labels_analyse_button = QPushButton("Plot average spectra")
+        labels_analyse_button.clicked.connect(self._plot_labels_spectrum)
+        labels_layout.addWidget(labels_analyse_button)
 
         # Add Widgets to tab
         tabs.addTab(spectrum_plotting_widget, "Plot Spectrum at Pixel")
         tabs.addTab(spectral_image_widget, "Create Spectral Image")
         tabs.addTab(labels_widget, "Regional Spectra Analysis")
 
+        self._update_labels_combobox()
+        self._viewer.layers.selection.events.changed.connect(self._update_labels_combobox)
+        self._viewer.layers.events.inserted.connect(self._update_labels_combobox)
+        self._viewer.layers.events.removed.connect(self._update_labels_combobox)
+
         # Add Tabs widget to Napari widget
         self.native.layout().addWidget(tabs)
+
+    def _create_labels_layer(self):
+        layer = self._viewer.layers.selection.active
+        if layer is None:
+            return
+        if (('is_brimfile', True) not in layer.metadata.items()):
+            napari.utils.notifications.show_info("A brimfile layer needs to be selected to create a labels layer.")
+            return 
+        # Create a new labels layer with the same shape as the active layer
+        labels_data = np.zeros(layer.data.shape, dtype=np.uint8)
+        self._viewer.add_labels(
+            labels_data, 
+            name=f"Labels for {layer.name}",
+            scale=layer.scale,
+            units=layer.units,
+            )
+    
+    def _update_labels_combobox(self):
+        # get all labels layers in the viewer and add to combobox
+        self._labels_combobox.clear()
+        active_layer = self._viewer.layers.selection.active
+        if active_layer is None:
+            return
+        if (('is_brimfile', True) not in active_layer.metadata.items()):
+            return  # ignore all other layers
+        for layer in self._viewer.layers:
+            if isinstance(layer, napari.layers.Labels) and (layer.data.shape*layer.scale == active_layer.data.shape*active_layer.scale).all(): 
+                self._labels_combobox.addItem(layer.name)
 
     def _on_create_spectral_image(self):
         layer = self._viewer.layers.selection.active
@@ -169,6 +224,7 @@ class ShowSpectrum(Container):
                 return
         # Check metadata attribute
         if (('is_brimfile', True) not in layer.metadata.items()):
+            napari.utils.notifications.show_info("A brimfile layer needs to be selected to create a spectral image.")
             return  # ignore all other layers
         
         file = layer.metadata['brimfile']
@@ -260,6 +316,39 @@ class ShowSpectrum(Container):
         if not self._autoscale_checkbox.isChecked():
             self.ax.set_ylim(self.spectrum_ymin, self.spectrum_ymax)
         self.ax.set_title('Spectrum of ' + image_layer.name + '\nat pixel [{},{},{}]'.format(coord[0],coord[1],coord[2]), color='White', fontsize = 12)
+        self.fig.canvas.draw()
+
+    def _plot_labels_spectrum(self): #CHECK!!
+        napari.utils.notifications.show_error("Function not implemented yet.")
+        return 
+    
+        # get all pixels with label
+        layer = self._viewer.layers[self._labels_combobox.currentText()]
+        mask = layer.data == label
+        if np.sum(mask) == 0:
+            napari.utils.notifications.show_info(f"No pixels with label {label} found in the selected labels layer")
+            return
+        # get spectra for all pixels and average
+        file = None
+        for l in self._viewer.layers:
+            if (('is_brimfile', True) in l.metadata.items()) and (l.data.shape*layer.scale == l.data.shape*l.scale).all():
+                file = l.metadata['brimfile']
+                break
+        if file is None:
+            napari.utils.notifications.show_info("No brimfile layer found with matching shape and scale to the selected labels layer")
+            return
+        
+        spectra = []
+        for coord in np.argwhere(mask):
+            spectrum = file.get_data(layer.metadata['Data_group']).get_spectrum_in_image(tuple(coord))
+            spectra.append(spectrum[0])
+        avg_spectrum = np.mean(spectra, axis=0)
+        # plot average spectrum
+        self.ax.clear()
+        self.ax.plot(spectrum[1], avg_spectrum, color = "#252931", lw = 2)
+        self.ax.set_xlabel('Frequency [{}]'.format(spectrum[3]), color='white')
+        self.ax.set_ylabel('PSD', color='white')
+        self.ax.set_title(f'Average spectrum of label {label} in {layer.name}', color='White', fontsize = 12)
         self.fig.canvas.draw()
 
     
