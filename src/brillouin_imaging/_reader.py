@@ -5,6 +5,7 @@ It implements the Reader specification, but your plugin may choose to
 implement multiple readers or even other plugin contributions. see:
 https://napari.org/stable/plugins/building_a_plugin/guides.html#readers
 """
+from turtle import reset
 import napari.layers
 import numpy as np
 import os
@@ -14,6 +15,7 @@ from napari.utils.notifications import show_info
 
 from magicgui.widgets import ComboBox, PushButton, Container, Label
 from qtpy.QtWidgets import QSizePolicy
+from qtpy.QtCore import Qt
 
 import brimfile as brim
 
@@ -113,6 +115,9 @@ def create_brim_widget(file: brim.File):
     quantity_combo = ComboBox(label="Quantity", choices=[])
     peak_types_combo = ComboBox(label="Peak type", choices=peak_types_choices)
     add_image_btn = PushButton(text="Add image")
+    add_image_btn.native.setFixedHeight(40)
+    reset_btn = PushButton(text="Reset")
+    reset_btn.native.setFixedWidth(120)
 
     def get_current_data_group() -> brim.Data:
         selected_value = data_combo.value
@@ -229,9 +234,10 @@ def create_brim_widget(file: brim.File):
     analysis_results_combo.changed.connect(on_analysis_results_change)
     quantity_combo.changed.connect(on_quantity_change)
     add_image_btn.clicked.connect(on_add_image_btn_pressed)
+    reset_btn.clicked.connect(on_data_change)
 
     # Combine controls into a container
-    container = Container(widgets=[file_name_label,data_combo, analysis_results_combo, quantity_combo, peak_types_combo, add_image_btn])
+    container = Container(widgets=[file_name_label,data_combo, analysis_results_combo, quantity_combo, peak_types_combo, add_image_btn, reset_btn])
 
     return container
 
