@@ -222,6 +222,7 @@ def create_brim_widget(file: brim.File) -> Container:
                         'is_brimfile': True,
                         'brimfile': file, # change to file itself
                         'Data_group': d.get_index(),
+                        'Analysis_result': get_current_analysis_results_index(),
                         }
                 )
         )

@@ -37,7 +37,7 @@ import napari
 import napari.utils
 import napari.utils.notifications
 from qtpy.QtWidgets import QHBoxLayout, QVBoxLayout, QPushButton, QCheckBox, QWidget, QLabel, QDoubleSpinBox, QTabWidget, QComboBox
-from qtpy.QtCore import Qt
+from qtpy.QtCore import Qt, QLocale
 import brimfile as brim
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvas
@@ -131,7 +131,8 @@ class ShowSpectrum(Container):
         self._num_field1.setDecimals(2)
         self._num_field1.setSuffix(" GHz")
         self._num_field1.setMaximumWidth(150)
-
+        self._num_field1.setLocale(QLocale(QLocale.English))  # ensure dot as decimal separator
+        
         self._num_label2 = QLabel("Upper bound")
         self._num_field2 = QDoubleSpinBox()
         self._num_field2.setRange(-30, 30)
@@ -140,6 +141,7 @@ class ShowSpectrum(Container):
         self._num_field2.setDecimals(2)
         self._num_field2.setSuffix(" GHz")
         self._num_field2.setMaximumWidth(150)
+        self._num_field2.setLocale(QLocale(QLocale.English))  # ensure dot as decimal separator
 
         self._create_btn = QPushButton("Create spectral image")
         self._create_btn.clicked.connect(self._on_create_spectral_image)
@@ -157,7 +159,7 @@ class ShowSpectrum(Container):
         labels_layout = QVBoxLayout()
         labels_widget.setLayout(labels_layout)
 
-        labels_text = QLabel(text='Region-based analysis of Brillouin images. Select labels layer from list. Analysis is then applied to active Brimfile layer.\n Show average spectrum, explore quantity at reagion')
+        labels_text = QLabel(text='Region-based analysis of Brillouin images. Select a Brimfile layer. The dropdown will show available labels layers which can be used for the analysis. Select one and press "Plot average spectra". The Brimfile layer needs to remain the active selection. \n Show average spectrum, explore quantity at reagion')
         labels_text.setAlignment(Qt.AlignCenter)
         labels_text.setWordWrap(True)
         labels_layout.addWidget(labels_text)
@@ -231,16 +233,19 @@ class ShowSpectrum(Container):
         # go through every pixel and get sum intensity, then add to spectral image
         # get baseline from Python fit to substract
         image_PSD = file.get_data(layer.metadata['Data_group']).get_PSD_as_spatial_map() #[0] is intensities, [1] is frequencies
-        image_offset = file.get_data(layer.metadata['Data_group']).get_analysis_results().get_image(brim.Data.AnalysisResults.Quantity.Offset)[0][:,:,:,np.newaxis]
+        image_offset = file.get_data(layer.metadata['Data_group']).get_analysis_results(layer.metadata['Analysis_result']).get_image(brim.Data.AnalysisResults.Quantity.Offset)[0][:,:,:,np.newaxis]
         image_ampl = image_PSD[0] - image_offset
         image_mask = (image_PSD[1] >= self._num_field1.value()) & (image_PSD[1] <= self._num_field2.value())
         image_ampl = image_ampl * image_mask
-        spectral_img = np.sum(image_ampl, axis=-1)
+        image_mask = np.sum(image_mask, axis=-1)
+        spectral_img = np.divide(np.sum(image_ampl, axis=-1), image_mask, where=image_mask!=0)
+        if np.any(image_mask == 0):
+            napari.utils.notifications.show_info("Some pixels had no valid data in the selected frequency range.")
         
         try:
             self._viewer.add_image(
                 spectral_img, 
-                name=f'Spectral image from {self._num_field1.value()} to {self._num_field2.value()} GHz',
+                name=f'Spectral image from {np.round(self._num_field1.value(), decimals=2)} to {np.round(self._num_field2.value(), decimals=2)} GHz',
                 scale=layer.scale,
                 units=layer.units,
                 )
