@@ -106,7 +106,8 @@ def create_brim_widget(file: brim.File) -> Container:
     quantity_map = {}
     
     # Create individual controls
-    file_name_label = Label(value=f"File: {os.path.basename(file.filename).replace("_", "_\u200b")}")
+    file_name = os.path.basename(file.filename).replace("_", "_\u200b")
+    file_name_label = Label(value=f"File: {file_name}")
     file_name_label.native.setWordWrap(True)
     file_name_label.native.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
     file_name_label.native.updateGeometry()
