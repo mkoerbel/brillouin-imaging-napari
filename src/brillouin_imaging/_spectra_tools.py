@@ -47,7 +47,7 @@ import numpy as np
 
 # if we want even more control over our widget, we can use
 # magicgui `Container`
-class ShowSpectrum(Container):
+class SpectraTools(Container):
     def __init__(self, viewer: "napari.viewer.Viewer"):
         super().__init__()
         self._viewer = viewer
@@ -217,7 +217,11 @@ class ShowSpectrum(Container):
         if (('is_brimfile', True) not in active_layer.metadata.items()):
             return  # ignore all other layers
         for layer in self._viewer.layers:
-            if isinstance(layer, napari.layers.Labels) and (layer.data.shape*layer.scale == active_layer.data.shape*active_layer.scale).all(): 
+            if not isinstance(layer, napari.layers.Labels):
+                continue
+            layer_extent = np.array(layer.data.shape, dtype=float) * np.array(layer.scale, dtype=float)
+            active_extent = np.array(active_layer.data.shape, dtype=float) * np.array(active_layer.scale, dtype=float)
+            if np.allclose(layer_extent, active_extent):
                 self._labels_combobox.addItem(layer.name)
 
     def _on_create_spectral_image(self):

@@ -5,10 +5,16 @@ It relies on fixtures provided by napari itself, including:
 - make_napari_viewer: provided by napari.utils._testsupport
 """
 import os
+import sys
 
 
-# Set QT_QPA_PLATFORM to offscreen for headless testing
-os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+# On macOS the offscreen Qt platform has no usable GL context, which
+# causes vispy's glGetParameter to segfault.  Remove the offscreen
+# override so the real display is used (tests need a GUI anyway).
+if sys.platform == 'darwin':
+    os.environ.pop('QT_QPA_PLATFORM', None)
+else:
+    os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 
 def pytest_configure(config):
