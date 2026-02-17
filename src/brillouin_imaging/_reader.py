@@ -5,6 +5,7 @@ It implements the Reader specification, but your plugin may choose to
 implement multiple readers or even other plugin contributions. see:
 https://napari.org/stable/plugins/building_a_plugin/guides.html#readers
 """
+from turtle import reset
 import napari.layers
 import numpy as np
 import os
@@ -12,7 +13,9 @@ import os
 import napari
 from napari.utils.notifications import show_info
 
-from magicgui.widgets import ComboBox, PushButton, Container
+from magicgui.widgets import ComboBox, PushButton, Container, Label
+from qtpy.QtWidgets import QSizePolicy
+from qtpy.QtCore import Qt
 
 import brimfile as brim
 
@@ -95,7 +98,7 @@ def reader_function(path):
     return [(None,)]
 
 
-def create_brim_widget(file: brim.File):
+def create_brim_widget(file: brim.File) -> Container:
     data_groups = file.list_data_groups(retrieve_custom_name=True)
     dt_names = [x['custom_name'] for x in data_groups]
     ar_groups = []
@@ -103,11 +106,19 @@ def create_brim_widget(file: brim.File):
     quantity_map = {}
     
     # Create individual controls
+    file_name = os.path.basename(file.filename).replace("_", "_\u200b")
+    file_name_label = Label(value=f"File: {file_name}")
+    file_name_label.native.setWordWrap(True)
+    file_name_label.native.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+    file_name_label.native.updateGeometry()
     data_combo = ComboBox(label="Data group", name="data_groups", choices=dt_names)
     analysis_results_combo = ComboBox(label="Analysis results", choices=[])
     quantity_combo = ComboBox(label="Quantity", choices=[])
     peak_types_combo = ComboBox(label="Peak type", choices=peak_types_choices)
     add_image_btn = PushButton(text="Add image")
+    add_image_btn.native.setFixedHeight(40)
+    reset_btn = PushButton(text="Reset")
+    reset_btn.native.setFixedWidth(120)
 
     def get_current_data_group() -> brim.Data:
         selected_value = data_combo.value
@@ -115,21 +126,22 @@ def create_brim_widget(file: brim.File):
         data_index = data_groups[data_index]["index"]
         d = file.get_data(data_index)
         return d
+    
     def get_current_analysis_results_index() -> int:
         selected_value = analysis_results_combo.value
         ar_index = analysis_results_combo.choices.index(selected_value)
         return ar_index
 
-    def on_data_change(event):
+    def on_data_change():
         nonlocal ar_groups
         ar_groups = get_current_data_group().list_AnalysisResults(retrieve_custom_name = True)
         ar_list = [x["custom_name"] for x in ar_groups]
         analysis_results_combo.choices = ar_list
         analysis_results_combo.value = analysis_results_combo.choices[0] if analysis_results_combo.choices else None
         # call the analysis_results handler directly to update downstream controls
-        on_analysis_results_change(None)
+        on_analysis_results_change()
     
-    def on_analysis_results_change(event):
+    def on_analysis_results_change():
         d = get_current_data_group()
         ar = d.get_analysis_results(get_current_analysis_results_index())
 
@@ -154,9 +166,9 @@ def create_brim_widget(file: brim.File):
         quantity_combo.choices = qts_display
         quantity_combo.value = quantity_combo.choices[0] if quantity_combo.choices else None
         # call the quantity handler directly
-        on_quantity_change(None)
+        on_quantity_change()
 
-    def on_quantity_change(event):
+    def on_quantity_change():
         d = get_current_data_group()
         ar = d.get_analysis_results(get_current_analysis_results_index())
 
@@ -174,9 +186,13 @@ def create_brim_widget(file: brim.File):
         else:
             raise ValueError(f"{pt[0]} is not a valid PeakType")
    
-    def on_add_image_btn_pressed(event):
+    def on_add_image_btn_pressed():
         d = get_current_data_group()
-        ar = d.get_analysis_results(get_current_analysis_results_index())
+        try:
+            ar = d.get_analysis_results(get_current_analysis_results_index())
+        except:
+            on_data_change()
+            return
 
         pt_cls = brim.Data.AnalysisResults.PeakType
         img = None
@@ -202,29 +218,28 @@ def create_brim_widget(file: brim.File):
                 name=analysis_results_combo.value + '-' + str(quantity_combo.value), 
                 scale=scale, 
                 units=px_size[0].units,
+                colormap='turbo',
                 metadata={
                         'is_brimfile': True,
                         'brimfile': file, # change to file itself
                         'Data_group': d.get_index(),
+                        'Analysis_result': get_current_analysis_results_index(),
                         }
                 )
         )
 
         # reinitialize the widget by calling the handler directly
-        on_data_change(None)
+        on_data_change()
 
     # Connect callbacks
     data_combo.changed.connect(on_data_change)
     analysis_results_combo.changed.connect(on_analysis_results_change)
     quantity_combo.changed.connect(on_quantity_change)
-    # prefer the clicked signal for buttons; fallback to changed if not present
-    try:
-        add_image_btn.clicked.connect(on_add_image_btn_pressed)
-    except Exception:
-        add_image_btn.changed.connect(on_add_image_btn_pressed)
+    add_image_btn.clicked.connect(on_add_image_btn_pressed)
+    reset_btn.clicked.connect(on_data_change)
 
     # Combine controls into a container
-    container = Container(widgets=[data_combo, analysis_results_combo, quantity_combo, peak_types_combo, add_image_btn])
+    container = Container(widgets=[file_name_label,data_combo, analysis_results_combo, quantity_combo, peak_types_combo, add_image_btn, reset_btn])
 
     return container
 

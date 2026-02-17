@@ -172,7 +172,7 @@ class TestCreateBrimWidget:
         qtbot.addWidget(widget.native)
         
         # Verify the widget has the expected components
-        assert len(widget) == 5  # 4 combo boxes + 1 button
+        assert len(widget) == 7  # 1 label + 4 combo boxes + 2 buttons
         assert hasattr(widget, 'data_groups')
         
     @pytest.mark.qt
@@ -192,7 +192,7 @@ class TestCreateBrimWidget:
         qtbot.addWidget(widget.native)
         
         # Check that data_groups combo box has the right choices
-        data_combo = widget[0]  # First widget should be data_groups
+        data_combo = widget[1]  # First widget should be data_groups
         assert len(data_combo.choices) == 2
         assert 'Data Group 1' in data_combo.choices
         assert 'Data Group 2' in data_combo.choices
