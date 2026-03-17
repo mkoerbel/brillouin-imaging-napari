@@ -122,7 +122,7 @@ class SpectraTools(Container):
         inspect_metadata_widget.setLayout(inspect_metadata_layout)
 
         inspect_metadata_text = QLabel(text='Inspect metadata of the active Brillouin layer. Select a Brillouin layer to display its metadata here.')
-        inspect_metadata_text.setStyleSheet("color: #3F4852;")
+        inspect_metadata_text.setStyleSheet("color: #626972;")
         inspect_metadata_text.setAlignment(Qt.AlignCenter)
         inspect_metadata_text.setWordWrap(True)
         inspect_metadata_layout.addWidget(inspect_metadata_text)
@@ -143,6 +143,12 @@ class SpectraTools(Container):
         inspect_metadata_layout.addWidget(self._metadata_table)
 
         # Spectrum Plotting tab
+        spectrum_plotting_text = QLabel(text='Plot Brillouin spectrum of a single pixel in an active brimfile layer. Select a brimfile layer and click on a pixel.')
+        spectrum_plotting_text.setStyleSheet("color: #626972;")
+        spectrum_plotting_text.setAlignment(Qt.AlignCenter)
+        spectrum_plotting_text.setWordWrap(True)
+        spectrum_plotting_text.setMaximumHeight(50)
+
         self._autoscale_checkbox = QCheckBox(text = 'Autoscale y-axis')
         self._autoscale_checkbox.setChecked(False)
         self._autoscale_checkbox.stateChanged.connect(self._reset_autoscale)
@@ -150,6 +156,7 @@ class SpectraTools(Container):
         spectrum_plotting_widget = QWidget()
         spectrum_plotting_layout = QVBoxLayout()
         spectrum_plotting_widget.setLayout(spectrum_plotting_layout)
+        spectrum_plotting_layout.addWidget(spectrum_plotting_text)
         spectrum_plotting_layout.addWidget(FigureCanvas(self.fig_plot_spectrum))
         spectrum_plotting_layout.addWidget(self._autoscale_checkbox)
 
@@ -160,7 +167,7 @@ class SpectraTools(Container):
         spectral_image_widget.setLayout(spectral_image_layout)
 
         self._spectral_image_text = QLabel(text='Create a spectral image by integrating the spectrum in a frequency range for each pixel.\nSelect the frequency range and click the button to create the spectral image.')
-        self._spectral_image_text.setStyleSheet("color: #3F4852;")
+        self._spectral_image_text.setStyleSheet("color: #626972;")
         self._spectral_image_text.setAlignment(Qt.AlignCenter)
         self._spectral_image_text.setWordWrap(True)
         self._num_label1 = QLabel("Lower bound")
@@ -203,7 +210,7 @@ class SpectraTools(Container):
         labels_text.setAlignment(Qt.AlignCenter)
         labels_text.setWordWrap(True)
         labels_text.setMaximumHeight(100)
-        labels_text.setStyleSheet("color: #3F4852;")
+        labels_text.setStyleSheet("color: #626972;")
         labels_layout.addWidget(labels_text)
 
         labels_selection_layout = QHBoxLayout()
@@ -366,14 +373,14 @@ class SpectraTools(Container):
         frequ_spacing = np.median(frequ_diffs)
         frequ_jumps = np.where(frequ_diffs > 2*frequ_spacing)[0]
         if len(frequ_jumps) == 0:
-            self.ax_plot_spectrum.plot(spectrum[1], spectrum[0], color = "#454B50")
+            self.ax_plot_spectrum.plot(spectrum[1], spectrum[0], color = "#2B2E37", lw=2)
         else: # split 
             frequ_jumps = np.concat([[0],frequ_jumps+1,[len(spectrum_sorted[1,:])]])      # 0 i, i j, j -1
             for i in range(len(frequ_jumps)-1):
                 self.ax_plot_spectrum.plot(
                     spectrum_sorted[1,frequ_jumps[i]:frequ_jumps[i+1]], 
                     spectrum_sorted[0,frequ_jumps[i]:frequ_jumps[i+1]], 
-                    color = "#252931", 
+                    color = "#2B2E37", 
                     lw = 2)
         self.ax_plot_spectrum.set_xlabel('Frequency [{}]'.format(spectrum[3]), color='white')
         self.ax_plot_spectrum.set_ylabel('PSD', color='white')
@@ -437,7 +444,7 @@ class SpectraTools(Container):
             return
         file = brim_layer.metadata['brimfile']
 
-        psd0, psd1,unit,_ = file.get_data(0).get_PSD_as_spatial_map()
+        psd0, psd1,_,psd_unit = file.get_data(0).get_PSD_as_spatial_map()
         idx = np.argsort(psd1, axis=-1)
         psd1_sorted = np.take_along_axis(psd1, idx, axis=-1)
         psd0_sorted = np.take_along_axis(psd0, idx, axis=-1)
@@ -447,22 +454,23 @@ class SpectraTools(Container):
         freq_min = np.nanmin(psd_sorted[1,...])
         freq_max = np.nanmax(psd_sorted[1,...])
         common_freqs = np.arange(freq_min, freq_max, 0.01)
-        common_psd = np.empty((psd0.shape[0], psd0.shape[1], psd0.shape[2], len(common_freqs)))
+        common_psd = np.full((psd0.shape[0], psd0.shape[1], psd0.shape[2], len(common_freqs)), np.nan)
 
         for iz in range(psd_sorted.shape[1]):
             for iy in range(psd_sorted.shape[2]):
                 for ix in range(psd_sorted.shape[3]):
-                    frequ_diffs = np.diff(psd_sorted[1, iz, iy, ix,:], axis=-1)
+                    valid = ~(np.isnan(psd_sorted[1, iz, iy, ix,:]) | np.isnan(psd_sorted[0, iz, iy, ix,:]))
+                    frequ_diffs = np.diff(psd_sorted[1, iz, iy, ix,valid], axis=-1)
                     frequ_spacing = np.median(frequ_diffs)
                     frequ_jumps = np.where(frequ_diffs > 2*frequ_spacing)[0]
                     if len(frequ_jumps) == 0:
                         # interpolate and add to common freq array
-                        cs = interpolate.CubicSpline(psd_sorted[1, iz, iy, ix,:], psd_sorted[0, iz, iy, ix,:])
-                        covered_freqs = (common_freqs >= np.min(psd_sorted[1, iz, iy, ix,:])) & (common_freqs <= np.max(psd_sorted[1, iz, iy, ix,:]))
+                        cs = interpolate.CubicSpline(psd_sorted[1, iz, iy, ix,valid], psd_sorted[0, iz, iy, ix,valid])
+                        covered_freqs = (common_freqs >= np.min(psd_sorted[1, iz, iy, ix,valid])) & (common_freqs <= np.max(psd_sorted[1, iz, iy, ix,valid]))
                         common_psd[iz, iy, ix, covered_freqs] = cs(common_freqs[covered_freqs])
                     else:
                         # interpolate every continuous part and add to common freq array
-                        frequ_jumps = np.concat([[0],frequ_jumps+1,[len(psd_sorted[1, iz, iy, ix,:])]])      # 0 i, i j, j -1
+                        frequ_jumps = np.concat([[0],frequ_jumps+1,[len(psd_sorted[1, iz, iy, ix,valid])]])      # 0 i, i j, j -1
                         for ifreq in range(len(frequ_jumps)-1):
                             x = psd_sorted[1, iz, iy, ix,frequ_jumps[ifreq]:frequ_jumps[ifreq+1]]
                             y = psd_sorted[0, iz, iy, ix,frequ_jumps[ifreq]:frequ_jumps[ifreq+1]] 
@@ -472,6 +480,8 @@ class SpectraTools(Container):
 
         self.ax_regional_spectra.clear()
         averaged_spectra = {}
+        cmap = plt.get_cmap('tab20')
+        legend_labels = []
         for ilab in n_labels:
             mask = labels == ilab
             # get spectra for all pixels and average
@@ -480,8 +490,34 @@ class SpectraTools(Container):
             for coord in np.argwhere(mask):
                 spectra += common_psd[coord[0], coord[1], coord[2], :]
             averaged_spectra[ilab] = spectra / n_spectra
-            # need to plot only non empty/0 parts of spectrum!
-            self.ax_regional_spectra.plot(common_freqs, averaged_spectra[ilab], label = f'Label {ilab}')
-        self.ax_regional_spectra.set_xlabel('Frequency [{}]'.format(unit), color='white')
+
+            valid = ~np.isnan(averaged_spectra[ilab])
+            frequ_diffs = np.diff(common_freqs[valid])
+            frequ_spacing = np.median(frequ_diffs)
+            frequ_jumps = np.where(frequ_diffs > 2*frequ_spacing)[0]
+            if len(frequ_jumps) == 0:
+                spectra1, = self.ax_plot_spectrum.plot(common_freqs[valid], averaged_spectra[ilab][valid], label = f'Label {ilab}', color = labels_layer.get_color(ilab))
+                legend_labels.append(spectra1)
+            else: # split 
+                frequ_jumps = np.concat([[0],frequ_jumps+1,[len(common_freqs[valid])]])      # 0 i, i j, j -1
+                for i in range(len(frequ_jumps)-1):
+                    spectra1, = self.ax_regional_spectra.plot(
+                        common_freqs[valid][frequ_jumps[i]:frequ_jumps[i+1]], 
+                        averaged_spectra[ilab][valid][frequ_jumps[i]:frequ_jumps[i+1]], 
+                        label = f'Label {ilab}',
+                        lw = 2,
+                        color = labels_layer.get_color(ilab),
+                        )
+                    if i == 0:
+                        legend_labels.append(spectra1)
+
+        self.ax_regional_spectra.set_xlabel('Frequency [{}]'.format(psd_unit), color='white')
         self.ax_regional_spectra.set_ylabel('PSD', color='white')   
+        self.ax_regional_spectra.legend(
+            handles=legend_labels,
+            loc='upper center',
+            bbox_to_anchor=(0.5, 1.2),   # x=centre, y=below axes
+            ncols=3,   
+            )
         self.fig_regional_spectra.canvas.draw()
+        self.fig_regional_spectra.get_layout_engine().set(rect=(0, 0, 1, 0.9))
