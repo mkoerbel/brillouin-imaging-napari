@@ -36,8 +36,9 @@ from magicgui.widgets import CheckBox, Container, create_widget
 import napari
 import napari.utils
 import napari.utils.notifications
-from qtpy.QtWidgets import QHBoxLayout, QVBoxLayout, QPushButton, QCheckBox, QWidget, QLabel, QDoubleSpinBox, QTabWidget, QComboBox
+from qtpy.QtWidgets import QHBoxLayout, QVBoxLayout, QPushButton, QCheckBox, QWidget, QLabel, QDoubleSpinBox, QTabWidget, QComboBox, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView
 from qtpy.QtCore import Qt, QLocale
+from qtpy.QtGui import QColor
 import brimfile as brim
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvas
@@ -115,6 +116,32 @@ class SpectraTools(Container):
             }
             """)
 
+        # Inspect metadata tab
+        inspect_metadata_widget = QWidget()
+        inspect_metadata_layout = QVBoxLayout()
+        inspect_metadata_widget.setLayout(inspect_metadata_layout)
+
+        inspect_metadata_text = QLabel(text='Inspect metadata of the active Brillouin layer. Select a Brillouin layer to display its metadata here.')
+        inspect_metadata_text.setStyleSheet("color: #3F4852;")
+        inspect_metadata_text.setAlignment(Qt.AlignCenter)
+        inspect_metadata_text.setWordWrap(True)
+        inspect_metadata_layout.addWidget(inspect_metadata_text)
+
+        self._metadata_table = QTableWidget(0, 2)
+        self._metadata_table.horizontalHeader().setVisible(False)
+        #self._metadata_table.setHorizontalHeaderLabels(["Key", "Value"])
+        self._metadata_table.horizontalHeader().setStretchLastSection(True)
+        self._metadata_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self._metadata_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self._metadata_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self._metadata_table.verticalHeader().setVisible(False)
+        self._metadata_table.setStyleSheet("""
+                QTableWidget {
+                    gridline-color: #3F4852;
+                }
+            """)
+        inspect_metadata_layout.addWidget(self._metadata_table)
+
         # Spectrum Plotting tab
         self._autoscale_checkbox = QCheckBox(text = 'Autoscale y-axis')
         self._autoscale_checkbox.setChecked(False)
@@ -133,6 +160,7 @@ class SpectraTools(Container):
         spectral_image_widget.setLayout(spectral_image_layout)
 
         self._spectral_image_text = QLabel(text='Create a spectral image by integrating the spectrum in a frequency range for each pixel.\nSelect the frequency range and click the button to create the spectral image.')
+        self._spectral_image_text.setStyleSheet("color: #3F4852;")
         self._spectral_image_text.setAlignment(Qt.AlignCenter)
         self._spectral_image_text.setWordWrap(True)
         self._num_label1 = QLabel("Lower bound")
@@ -175,6 +203,7 @@ class SpectraTools(Container):
         labels_text.setAlignment(Qt.AlignCenter)
         labels_text.setWordWrap(True)
         labels_text.setMaximumHeight(100)
+        labels_text.setStyleSheet("color: #3F4852;")
         labels_layout.addWidget(labels_text)
 
         labels_selection_layout = QHBoxLayout()
@@ -196,6 +225,7 @@ class SpectraTools(Container):
         labels_layout.addWidget(FigureCanvas(self.fig_regional_spectra))
 
         # Add Widgets to tab
+        tabs.addTab(inspect_metadata_widget, "Inspect Metadata")
         tabs.addTab(spectrum_plotting_widget, "Plot Spectrum at Pixel")
         tabs.addTab(spectral_image_widget, "Create Spectral Image")
         tabs.addTab(labels_widget, "Regional Spectra Analysis")
@@ -204,6 +234,11 @@ class SpectraTools(Container):
         self._viewer.layers.selection.events.changed.connect(self._update_labels_combobox)
         self._viewer.layers.events.inserted.connect(self._update_labels_combobox)
         self._viewer.layers.events.removed.connect(self._update_labels_combobox)
+
+        self._update_metadata_table()
+        self._viewer.layers.selection.events.changed.connect(self._update_metadata_table)
+        self._viewer.layers.events.inserted.connect(self._update_metadata_table)
+        self._viewer.layers.events.removed.connect(self._update_metadata_table)
 
         # Add Tabs widget to Napari widget
         self.native.layout().addWidget(tabs)
@@ -347,7 +382,47 @@ class SpectraTools(Container):
         self.ax_plot_spectrum.set_title('Spectrum of ' + image_layer.name + '\nat pixel [{},{},{}]'.format(coord[0],coord[1],coord[2]), color='White', fontsize = 12)
         self.fig_plot_spectrum.canvas.draw()
 
-    def _plot_labels_spectrum(self): 
+    def _update_metadata_table(self):
+        self._metadata_table.setRowCount(0)
+        active_layer = self._viewer.layers.selection.active
+        if active_layer is None:
+            return
+        if ('is_brimfile', True) not in active_layer.metadata.items():
+            return
+        brim_metadata = active_layer.metadata['brimfile'].get_data(active_layer.metadata['Data_group']).get_metadata().all_to_dict()
+        # Traverse the nested metadata dict (outer_key -> inner_key -> item) and populate table
+        for outer_key, inner_dict in brim_metadata.items():
+            if isinstance(inner_dict, dict):
+                # Add header row for outer_key
+                row = self._metadata_table.rowCount()
+                self._metadata_table.insertRow(row)
+                header_item = QTableWidgetItem(outer_key)
+                header_item.setFlags(Qt.ItemIsEnabled)  # make header row non-selectable
+                header_item.setBackground(QColor("#3F4852"))
+                header_item.setForeground(QColor("#D1D2D4"))
+                header_item.setTextAlignment(Qt.AlignCenter)
+                self._metadata_table.setItem(row, 0, header_item)
+                self._metadata_table.setSpan(row, 0, 1, 2) # span both columns
+
+                for inner_key, item in inner_dict.items():
+                    if (inner_key == 'IRF') or (inner_key == 'IRF_frequency'):
+                        continue  # skip IRF data for display
+                    row = self._metadata_table.rowCount()
+                    self._metadata_table.insertRow(row)
+                    unit = item.units if hasattr(item, 'units') else False
+                    if unit:
+                        self._metadata_table.setItem(row, 0, QTableWidgetItem(f"{inner_key} [{unit}]"))
+                    else: 
+                        self._metadata_table.setItem(row, 0, QTableWidgetItem(f"{inner_key}"))
+                    value = item.value if hasattr(item, 'value') else str(item)
+                    self._metadata_table.setItem(row, 1, QTableWidgetItem(str(value)))
+            else:
+                napari.utils.notifications.show_info("Check if brimfile metadata are valid.")
+
+    def _plot_labels_spectrum(self):
+        if self._labels_combobox.currentText() == "":
+            napari.utils.notifications.show_info("Select a brimfile layer and choose a labels layer.")
+            return 
         # get all pixels with label
         labels_layer = self._viewer.layers[self._labels_combobox.currentText()]
         labels = labels_layer.data
@@ -369,8 +444,8 @@ class SpectraTools(Container):
         # keep as tuple
         psd_sorted = np.array([psd0_sorted, psd1_sorted])
         #psd_sorted = psd_sorted[:,np.logical_not(np.isnan(psd_sorted[1]))]  
-        freq_min = np.min(psd_sorted[1,...])
-        freq_max = np.max(psd_sorted[1,...])
+        freq_min = np.nanmin(psd_sorted[1,...])
+        freq_max = np.nanmax(psd_sorted[1,...])
         common_freqs = np.arange(freq_min, freq_max, 0.01)
         common_psd = np.empty((psd0.shape[0], psd0.shape[1], psd0.shape[2], len(common_freqs)))
 
