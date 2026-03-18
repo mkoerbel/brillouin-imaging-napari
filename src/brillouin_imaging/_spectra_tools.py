@@ -206,7 +206,7 @@ class SpectraTools(Container):
         labels_layout = QVBoxLayout()
         labels_widget.setLayout(labels_layout)
 
-        labels_text = QLabel(text='Region-based analysis of Brillouin images. Select a Brimfile layer. The dropdown will show available labels layers which can be used for the analysis. Select one and press "Plot average spectra". The Brimfile layer needs to remain the active selection. \n Show average spectrum and summary statistics at reagion')
+        labels_text = QLabel(text='Region-based analysis of Brillouin images. Select a Brimfile layer. The dropdown will show available labels layers which can be used for the analysis. Select one and press "Analyse labels". The Brimfile layer needs to remain the active selection. \n Show average spectrum and summary statistics at region')
         labels_text.setAlignment(Qt.AlignCenter)
         labels_text.setWordWrap(True)
         labels_text.setMaximumHeight(100)
@@ -231,7 +231,7 @@ class SpectraTools(Container):
         # Table for summary statistics
         self._labels_table = QTableWidget(0, 5) # label, mean shift, std shift, mean width, std width
         self._labels_table.setHorizontalHeaderLabels(["Label", "mean shift [GHz]", "std shift [GHz]", "mean width [GHz]", "std width [GHz]"])
-        #self._labels_table.horizontalHeader().setStretchLastSection(True)
+        # self._labels_table.horizontalHeader().setStretchLastSection(True)
         self._labels_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self._labels_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self._labels_table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -486,7 +486,7 @@ class SpectraTools(Container):
         for iz in range(psd_sorted.shape[1]):
             for iy in range(psd_sorted.shape[2]):
                 for ix in range(psd_sorted.shape[3]):
-                    # TODO: implement efficieny to only interpolate pixels within the mask
+                    # TODO: implement efficiency to only interpolate pixels within the mask
                     #if np.any(np.all(labelled_pixels == [iz,iy,ix], axis=1)):
                     #    continue
                     valid = ~(np.isnan(psd_sorted[1, iz, iy, ix,:]) | np.isnan(psd_sorted[0, iz, iy, ix,:]))
