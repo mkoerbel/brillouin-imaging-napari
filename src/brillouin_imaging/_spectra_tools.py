@@ -382,6 +382,20 @@ class SpectraTools(Container):
                     spectrum_sorted[0,frequ_jumps[i]:frequ_jumps[i+1]], 
                     color = "#2B2E37", 
                     lw = 2)
+        # Load fits
+        fit_model = brim.fitting_models.get_fit_model(file.get_data(image_layer.metadata['Data_group']).get_analysis_results(image_layer.metadata['Analysis_result']).fit_model)
+        px_quantities = file.get_data(image_layer.metadata['Data_group']).get_analysis_results(image_layer.metadata['Analysis_result']).get_all_quantities_in_image(coord)
+        fit_x = np.arange(np.min(spectrum_sorted[1]), np.max(spectrum_sorted[1]),0.1)
+        for itype in ['Stokes', 'AntiStokes']:
+            if itype not in px_quantities['Shift']:
+                continue
+            nu0 = px_quantities['Shift'][itype].value
+            gamma = px_quantities['Width'][itype].value
+            a = px_quantities['Amplitude'][itype].value
+            b = px_quantities['Offset'][itype].value
+            self.ax_plot_spectrum.plot(fit_x, fit_model(fit_x, nu0, gamma, a, b), color = "#2FA489", lw=1.5, ls = ':')        
+        
+        # Update figure and axes 
         self.ax_plot_spectrum.set_xlabel('Frequency [{}]'.format(spectrum[3]), color='white')
         self.ax_plot_spectrum.set_ylabel('PSD', color='white')
         if not self._autoscale_checkbox.isChecked():
@@ -444,13 +458,12 @@ class SpectraTools(Container):
             return
         file = brim_layer.metadata['brimfile']
 
-        psd0, psd1,_,psd_unit = file.get_data(0).get_PSD_as_spatial_map()
+        psd0, psd1,_,freq_unit = file.get_data(0).get_PSD_as_spatial_map()
         idx = np.argsort(psd1, axis=-1)
         psd1_sorted = np.take_along_axis(psd1, idx, axis=-1)
         psd0_sorted = np.take_along_axis(psd0, idx, axis=-1)
         # keep as tuple
         psd_sorted = np.array([psd0_sorted, psd1_sorted])
-        #psd_sorted = psd_sorted[:,np.logical_not(np.isnan(psd_sorted[1]))]  
         freq_min = np.nanmin(psd_sorted[1,...])
         freq_max = np.nanmax(psd_sorted[1,...])
         common_freqs = np.arange(freq_min, freq_max, 0.01)
@@ -480,7 +493,6 @@ class SpectraTools(Container):
 
         self.ax_regional_spectra.clear()
         averaged_spectra = {}
-        cmap = plt.get_cmap('tab20')
         legend_labels = []
         for ilab in n_labels:
             mask = labels == ilab
@@ -496,7 +508,7 @@ class SpectraTools(Container):
             frequ_spacing = np.median(frequ_diffs)
             frequ_jumps = np.where(frequ_diffs > 2*frequ_spacing)[0]
             if len(frequ_jumps) == 0:
-                spectra1, = self.ax_plot_spectrum.plot(common_freqs[valid], averaged_spectra[ilab][valid], label = f'Label {ilab}', color = labels_layer.get_color(ilab))
+                spectra1, = self.ax_regional_spectra.plot(common_freqs[valid], averaged_spectra[ilab][valid], label = f'Label {ilab}', color = labels_layer.get_color(ilab))
                 legend_labels.append(spectra1)
             else: # split 
                 frequ_jumps = np.concat([[0],frequ_jumps+1,[len(common_freqs[valid])]])      # 0 i, i j, j -1
@@ -511,7 +523,7 @@ class SpectraTools(Container):
                     if i == 0:
                         legend_labels.append(spectra1)
 
-        self.ax_regional_spectra.set_xlabel('Frequency [{}]'.format(psd_unit), color='white')
+        self.ax_regional_spectra.set_xlabel('Frequency [{}]'.format(freq_unit), color='white')
         self.ax_regional_spectra.set_ylabel('PSD', color='white')   
         self.ax_regional_spectra.legend(
             handles=legend_labels,
