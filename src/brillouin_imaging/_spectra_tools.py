@@ -222,14 +222,27 @@ class SpectraTools(Container):
         labels_new_button.clicked.connect(self._create_labels_layer)
         labels_selection_layout.addWidget(self._labels_combobox)
         labels_selection_layout.addWidget(labels_new_button)
-
         # Add analyse button - then check if layer is eligible?
         labels_analyse_button = QPushButton("Plot average spectra")
         labels_analyse_button.clicked.connect(self._plot_labels_spectrum)
         labels_layout.addWidget(labels_analyse_button)
-
         # Add plotting window
         labels_layout.addWidget(FigureCanvas(self.fig_regional_spectra))
+        # Table for summary statistics
+        self._labels_table = QTableWidget(0, 5) # label, mean shift, std shift, mean width, std width
+        self._labels_table.setHorizontalHeaderLabels(["Label", "mean shift [GHz]", "std shift [GHz]", "mean width [GHz]", "std width [GHz]"])
+        self._labels_table.horizontalHeader().setStretchLastSection(True)
+        self._labels_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self._labels_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self._labels_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self._labels_table.verticalHeader().setVisible(False)
+        self._labels_table.setStyleSheet("""
+                QTableWidget {
+                    gridline-color: #3F4852;
+                }
+            """)
+        labels_layout.addWidget(self._labels_table)
+
 
         # Add Widgets to tab
         tabs.addTab(inspect_metadata_widget, "Inspect Metadata")
@@ -458,7 +471,7 @@ class SpectraTools(Container):
             return
         file = brim_layer.metadata['brimfile']
 
-        psd0, psd1,_,freq_unit = file.get_data(0).get_PSD_as_spatial_map()
+        psd0, psd1,_,freq_unit = file.get_data(brim_layer.metadata['Data_group']).get_PSD_as_spatial_map()
         idx = np.argsort(psd1, axis=-1)
         psd1_sorted = np.take_along_axis(psd1, idx, axis=-1)
         psd0_sorted = np.take_along_axis(psd0, idx, axis=-1)
@@ -522,7 +535,30 @@ class SpectraTools(Container):
                         )
                     if i == 0:
                         legend_labels.append(spectra1)
-
+            
+            # Update summary table
+            row = self._labels_table.rowCount()
+            self._labels_table.insertRow(row)
+            self._labels_table.setItem(row, 0, QTableWidgetItem(f"{ilab}"))
+            try:
+                shift_img = file.get_data(brim_layer.metadata['Data_group']).get_analysis_results(brim_layer.metadata['Analysis_result']).get_image(brim.AnalysisResults.Quantity.Shift)[0]
+            except:
+                shift_img = None
+            try:    
+                width_img = file.get_data(brim_layer.metadata['Data_group']).get_analysis_results(brim_layer.metadata['Analysis_result']).get_image(brim.AnalysisResults.Quantity.Width)[0]
+            except:
+                width_img = None
+            if shift_img is not None:
+                mean_shift = np.round(np.mean(shift_img[mask]),3)
+                std_shift = np.round(np.std(shift_img[mask]),3)
+                self._labels_table.setItem(row, 1, QTableWidgetItem(str(mean_shift)))
+                self._labels_table.setItem(row, 2, QTableWidgetItem(str(std_shift)))
+            if width_img is not None:
+                mean_width = np.round(np.mean(width_img[mask]),3)
+                std_width = np.round(np.std(width_img[mask]),3)
+                self._labels_table.setItem(row, 3, QTableWidgetItem(str(mean_width)))
+                self._labels_table.setItem(row, 4, QTableWidgetItem(str(std_width)))
+            
         self.ax_regional_spectra.set_xlabel('Frequency [{}]'.format(freq_unit), color='white')
         self.ax_regional_spectra.set_ylabel('PSD', color='white')   
         self.ax_regional_spectra.legend(
@@ -533,3 +569,5 @@ class SpectraTools(Container):
             )
         self.fig_regional_spectra.canvas.draw()
         self.fig_regional_spectra.get_layout_engine().set(rect=(0, 0, 1, 0.9))
+
+        
