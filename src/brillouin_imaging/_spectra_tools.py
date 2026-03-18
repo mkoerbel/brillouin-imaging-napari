@@ -206,7 +206,7 @@ class SpectraTools(Container):
         labels_layout = QVBoxLayout()
         labels_widget.setLayout(labels_layout)
 
-        labels_text = QLabel(text='Region-based analysis of Brillouin images. Select a Brimfile layer. The dropdown will show available labels layers which can be used for the analysis. Select one and press "Plot average spectra". The Brimfile layer needs to remain the active selection. \n Show average spectrum, explore quantity at reagion')
+        labels_text = QLabel(text='Region-based analysis of Brillouin images. Select a Brimfile layer. The dropdown will show available labels layers which can be used for the analysis. Select one and press "Plot average spectra". The Brimfile layer needs to remain the active selection. \n Show average spectrum and summary statistics at reagion')
         labels_text.setAlignment(Qt.AlignCenter)
         labels_text.setWordWrap(True)
         labels_text.setMaximumHeight(100)
@@ -223,7 +223,7 @@ class SpectraTools(Container):
         labels_selection_layout.addWidget(self._labels_combobox)
         labels_selection_layout.addWidget(labels_new_button)
         # Add analyse button - then check if layer is eligible?
-        labels_analyse_button = QPushButton("Plot average spectra")
+        labels_analyse_button = QPushButton("Analyse labels")
         labels_analyse_button.clicked.connect(self._plot_labels_spectrum)
         labels_layout.addWidget(labels_analyse_button)
         # Add plotting window
@@ -231,7 +231,7 @@ class SpectraTools(Container):
         # Table for summary statistics
         self._labels_table = QTableWidget(0, 5) # label, mean shift, std shift, mean width, std width
         self._labels_table.setHorizontalHeaderLabels(["Label", "mean shift [GHz]", "std shift [GHz]", "mean width [GHz]", "std width [GHz]"])
-        self._labels_table.horizontalHeader().setStretchLastSection(True)
+        #self._labels_table.horizontalHeader().setStretchLastSection(True)
         self._labels_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self._labels_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self._labels_table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -481,10 +481,14 @@ class SpectraTools(Container):
         freq_max = np.nanmax(psd_sorted[1,...])
         common_freqs = np.arange(freq_min, freq_max, 0.01)
         common_psd = np.full((psd0.shape[0], psd0.shape[1], psd0.shape[2], len(common_freqs)), np.nan)
+        #labelled_pixels = np.argwhere(labels>0)
 
         for iz in range(psd_sorted.shape[1]):
             for iy in range(psd_sorted.shape[2]):
                 for ix in range(psd_sorted.shape[3]):
+                    # TODO: implement efficieny to only interpolate pixels within the mask
+                    #if np.any(np.all(labelled_pixels == [iz,iy,ix], axis=1)):
+                    #    continue
                     valid = ~(np.isnan(psd_sorted[1, iz, iy, ix,:]) | np.isnan(psd_sorted[0, iz, iy, ix,:]))
                     frequ_diffs = np.diff(psd_sorted[1, iz, iy, ix,valid], axis=-1)
                     frequ_spacing = np.median(frequ_diffs)
@@ -505,6 +509,7 @@ class SpectraTools(Container):
                             common_psd[iz, iy, ix, covered_freqs] = cs(common_freqs[covered_freqs])
 
         self.ax_regional_spectra.clear()
+        self._labels_table.setRowCount(0)
         averaged_spectra = {}
         legend_labels = []
         for ilab in n_labels:
@@ -549,13 +554,13 @@ class SpectraTools(Container):
             except:
                 width_img = None
             if shift_img is not None:
-                mean_shift = np.round(np.mean(shift_img[mask]),3)
-                std_shift = np.round(np.std(shift_img[mask]),3)
+                mean_shift = np.round(np.nanmean(shift_img[mask]),3)
+                std_shift = np.round(np.nanstd(shift_img[mask]),3)
                 self._labels_table.setItem(row, 1, QTableWidgetItem(str(mean_shift)))
                 self._labels_table.setItem(row, 2, QTableWidgetItem(str(std_shift)))
             if width_img is not None:
-                mean_width = np.round(np.mean(width_img[mask]),3)
-                std_width = np.round(np.std(width_img[mask]),3)
+                mean_width = np.round(np.nanmean(width_img[mask]),3)
+                std_width = np.round(np.nanstd(width_img[mask]),3)
                 self._labels_table.setItem(row, 3, QTableWidgetItem(str(mean_width)))
                 self._labels_table.setItem(row, 4, QTableWidgetItem(str(std_width)))
             

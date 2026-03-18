@@ -32,7 +32,7 @@ dependencies = [
     "numpy",
     "magicgui",
     "qtpy",
-    "brimfile",
+    "brimfile>=1.5.0,<2.0.0",
     "brimfile[remote-store]",
 ]
 
