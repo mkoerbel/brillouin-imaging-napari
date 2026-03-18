@@ -206,7 +206,7 @@ class SpectraTools(Container):
         labels_layout = QVBoxLayout()
         labels_widget.setLayout(labels_layout)
 
-        labels_text = QLabel(text='Region-based analysis of Brillouin images. Select a Brimfile layer. The dropdown will show available labels layers which can be used for the analysis. Select one and press "Analyse labels". The Brimfile layer needs to remain the active selection. \n Show average spectrum and summary statistics at region')
+        labels_text = QLabel(text='Region-based analysis of Brillouin images. Select a brimfile layer. The dropdown will show available labels layers which can be used for the analysis. Select one and press "Analyse labels". The brimfile layer needs to remain the active selection.\nShow the average spectrum and summary statistics per region.')
         labels_text.setAlignment(Qt.AlignCenter)
         labels_text.setWordWrap(True)
         labels_text.setMaximumHeight(100)
