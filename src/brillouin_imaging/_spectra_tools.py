@@ -36,12 +36,14 @@ from magicgui.widgets import CheckBox, Container, create_widget
 import napari
 import napari.utils
 import napari.utils.notifications
-from qtpy.QtWidgets import QHBoxLayout, QVBoxLayout, QPushButton, QCheckBox, QWidget, QLabel, QDoubleSpinBox, QTabWidget, QComboBox
+from qtpy.QtWidgets import QHBoxLayout, QVBoxLayout, QPushButton, QCheckBox, QWidget, QLabel, QDoubleSpinBox, QTabWidget, QComboBox, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView
 from qtpy.QtCore import Qt, QLocale
+from qtpy.QtGui import QColor
 import brimfile as brim
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvas
 import numpy as np
+from scipy import interpolate
 
 
 
@@ -52,19 +54,30 @@ class SpectraTools(Container):
         super().__init__()
         self._viewer = viewer
 
-        # matplotlib figure
-        self.fig, self.ax = plt.subplots()
-        self.fig.set_layout_engine('constrained')
-        self.fig.patch.set_alpha(0)
-        self.ax.set_xlabel('Frequency []', color='white')
-        self.ax.set_ylabel('PSD', color='white')
-        self.ax.tick_params(axis='x', colors='white')
-        self.ax.tick_params(axis='y', colors='white')
-        self.ax.yaxis.label.set_color('white')
-        self.ax.xaxis.label.set_color('white')
-        self.ax.set_ylim(0,1)   # 37 41 49
+        # Plot spectrum matplotlib figure
+        self.fig_plot_spectrum, self.ax_plot_spectrum = plt.subplots()
+        self.fig_plot_spectrum.set_layout_engine('constrained')
+        self.fig_plot_spectrum.patch.set_alpha(0)
+        self.ax_plot_spectrum.set_xlabel('Frequency []', color='white')
+        self.ax_plot_spectrum.set_ylabel('PSD', color='white')
+        self.ax_plot_spectrum.tick_params(axis='x', colors='white')
+        self.ax_plot_spectrum.tick_params(axis='y', colors='white')
+        self.ax_plot_spectrum.yaxis.label.set_color('white')
+        self.ax_plot_spectrum.xaxis.label.set_color('white')
+        self.ax_plot_spectrum.set_ylim(0,1)   # 37 41 49
         self.spectrum_ymax = 0
         self.spectrum_ymin = 1E6
+
+        # Plot regional spectra matplotlib figure
+        self.fig_regional_spectra, self.ax_regional_spectra = plt.subplots()
+        self.fig_regional_spectra.set_layout_engine('constrained')
+        self.fig_regional_spectra.patch.set_alpha(0)
+        self.ax_regional_spectra.set_xlabel('Frequency []', color='white')
+        self.ax_regional_spectra.set_ylabel('PSD', color='white')
+        self.ax_regional_spectra.tick_params(axis='x', colors='white')
+        self.ax_regional_spectra.tick_params(axis='y', colors='white')
+        self.ax_regional_spectra.yaxis.label.set_color('white')
+        self.ax_regional_spectra.xaxis.label.set_color('white')
 
         # connect your own callbacks
         self._connect_mouse_events()
@@ -103,7 +116,39 @@ class SpectraTools(Container):
             }
             """)
 
+        # Inspect metadata tab
+        inspect_metadata_widget = QWidget()
+        inspect_metadata_layout = QVBoxLayout()
+        inspect_metadata_widget.setLayout(inspect_metadata_layout)
+
+        inspect_metadata_text = QLabel(text='Inspect metadata of the active Brillouin layer. Select a Brillouin layer to display its metadata here.')
+        inspect_metadata_text.setStyleSheet("color: #626972;")
+        inspect_metadata_text.setAlignment(Qt.AlignCenter)
+        inspect_metadata_text.setWordWrap(True)
+        inspect_metadata_layout.addWidget(inspect_metadata_text)
+
+        self._metadata_table = QTableWidget(0, 2)
+        self._metadata_table.horizontalHeader().setVisible(False)
+        #self._metadata_table.setHorizontalHeaderLabels(["Key", "Value"])
+        self._metadata_table.horizontalHeader().setStretchLastSection(True)
+        self._metadata_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self._metadata_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self._metadata_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self._metadata_table.verticalHeader().setVisible(False)
+        self._metadata_table.setStyleSheet("""
+                QTableWidget {
+                    gridline-color: #3F4852;
+                }
+            """)
+        inspect_metadata_layout.addWidget(self._metadata_table)
+
         # Spectrum Plotting tab
+        spectrum_plotting_text = QLabel(text='Plot Brillouin spectrum of a single pixel in an active brimfile layer. Select a brimfile layer and click on a pixel.')
+        spectrum_plotting_text.setStyleSheet("color: #626972;")
+        spectrum_plotting_text.setAlignment(Qt.AlignCenter)
+        spectrum_plotting_text.setWordWrap(True)
+        spectrum_plotting_text.setMaximumHeight(50)
+
         self._autoscale_checkbox = QCheckBox(text = 'Autoscale y-axis')
         self._autoscale_checkbox.setChecked(False)
         self._autoscale_checkbox.stateChanged.connect(self._reset_autoscale)
@@ -111,7 +156,8 @@ class SpectraTools(Container):
         spectrum_plotting_widget = QWidget()
         spectrum_plotting_layout = QVBoxLayout()
         spectrum_plotting_widget.setLayout(spectrum_plotting_layout)
-        spectrum_plotting_layout.addWidget(FigureCanvas(self.fig))
+        spectrum_plotting_layout.addWidget(spectrum_plotting_text)
+        spectrum_plotting_layout.addWidget(FigureCanvas(self.fig_plot_spectrum))
         spectrum_plotting_layout.addWidget(self._autoscale_checkbox)
 
         # Spectral Image tab
@@ -121,11 +167,12 @@ class SpectraTools(Container):
         spectral_image_widget.setLayout(spectral_image_layout)
 
         self._spectral_image_text = QLabel(text='Create a spectral image by integrating the spectrum in a frequency range for each pixel.\nSelect the frequency range and click the button to create the spectral image.')
+        self._spectral_image_text.setStyleSheet("color: #626972;")
         self._spectral_image_text.setAlignment(Qt.AlignCenter)
         self._spectral_image_text.setWordWrap(True)
         self._num_label1 = QLabel("Lower bound")
         self._num_field1 = QDoubleSpinBox()
-        self._num_field1.setRange(-30, 30)
+        self._num_field1.setRange(-100, 100)
         self._num_field1.setValue(-30)
         self._num_field1.setSingleStep(0.1)
         self._num_field1.setDecimals(2)
@@ -135,7 +182,7 @@ class SpectraTools(Container):
         
         self._num_label2 = QLabel("Upper bound")
         self._num_field2 = QDoubleSpinBox()
-        self._num_field2.setRange(-30, 30)
+        self._num_field2.setRange(-100, 100)
         self._num_field2.setValue(30)
         self._num_field2.setSingleStep(0.1)
         self._num_field2.setDecimals(2)
@@ -162,6 +209,8 @@ class SpectraTools(Container):
         labels_text = QLabel(text='Region-based analysis of Brillouin images. Select a Brimfile layer. The dropdown will show available labels layers which can be used for the analysis. Select one and press "Plot average spectra". The Brimfile layer needs to remain the active selection. \n Show average spectrum, explore quantity at reagion')
         labels_text.setAlignment(Qt.AlignCenter)
         labels_text.setWordWrap(True)
+        labels_text.setMaximumHeight(100)
+        labels_text.setStyleSheet("color: #626972;")
         labels_layout.addWidget(labels_text)
 
         labels_selection_layout = QHBoxLayout()
@@ -173,13 +222,30 @@ class SpectraTools(Container):
         labels_new_button.clicked.connect(self._create_labels_layer)
         labels_selection_layout.addWidget(self._labels_combobox)
         labels_selection_layout.addWidget(labels_new_button)
-
         # Add analyse button - then check if layer is eligible?
         labels_analyse_button = QPushButton("Plot average spectra")
         labels_analyse_button.clicked.connect(self._plot_labels_spectrum)
         labels_layout.addWidget(labels_analyse_button)
+        # Add plotting window
+        labels_layout.addWidget(FigureCanvas(self.fig_regional_spectra))
+        # Table for summary statistics
+        self._labels_table = QTableWidget(0, 5) # label, mean shift, std shift, mean width, std width
+        self._labels_table.setHorizontalHeaderLabels(["Label", "mean shift [GHz]", "std shift [GHz]", "mean width [GHz]", "std width [GHz]"])
+        self._labels_table.horizontalHeader().setStretchLastSection(True)
+        self._labels_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self._labels_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self._labels_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self._labels_table.verticalHeader().setVisible(False)
+        self._labels_table.setStyleSheet("""
+                QTableWidget {
+                    gridline-color: #3F4852;
+                }
+            """)
+        labels_layout.addWidget(self._labels_table)
+
 
         # Add Widgets to tab
+        tabs.addTab(inspect_metadata_widget, "Inspect Metadata")
         tabs.addTab(spectrum_plotting_widget, "Plot Spectrum at Pixel")
         tabs.addTab(spectral_image_widget, "Create Spectral Image")
         tabs.addTab(labels_widget, "Regional Spectra Analysis")
@@ -188,6 +254,11 @@ class SpectraTools(Container):
         self._viewer.layers.selection.events.changed.connect(self._update_labels_combobox)
         self._viewer.layers.events.inserted.connect(self._update_labels_combobox)
         self._viewer.layers.events.removed.connect(self._update_labels_combobox)
+
+        self._update_metadata_table()
+        self._viewer.layers.selection.events.changed.connect(self._update_metadata_table)
+        self._viewer.layers.events.inserted.connect(self._update_metadata_table)
+        self._viewer.layers.events.removed.connect(self._update_metadata_table)
 
         # Add Tabs widget to Napari widget
         self.native.layout().addWidget(tabs)
@@ -235,10 +306,14 @@ class SpectraTools(Container):
         
         file = layer.metadata['brimfile']
         # go through every pixel and get sum intensity, then add to spectral image
-        # get baseline from Python fit to substract
+        # get baseline from fit to substract
         image_PSD = file.get_data(layer.metadata['Data_group']).get_PSD_as_spatial_map() #[0] is intensities, [1] is frequencies
         image_offset = file.get_data(layer.metadata['Data_group']).get_analysis_results(layer.metadata['Analysis_result']).get_image(brim.Data.AnalysisResults.Quantity.Offset)[0][:,:,:,np.newaxis]
         image_ampl = image_PSD[0] - image_offset
+        if self._num_field1.value() > self._num_field2.value():
+            tmp = self._num_field1.value()
+            self._num_field1.setValue(self._num_field2.value())
+            self._num_field2.setValue(tmp)
         image_mask = (image_PSD[1] >= self._num_field1.value()) & (image_PSD[1] <= self._num_field2.value())
         image_ampl = image_ampl * image_mask
         image_mask = np.sum(image_mask, axis=-1)
@@ -305,59 +380,194 @@ class SpectraTools(Container):
             self.spectrum_ymax = max(spectrum_sorted[0])
         if self.spectrum_ymin > min(spectrum_sorted[0]):
             self.spectrum_ymin = min(spectrum_sorted[0])
-        self.ax.clear()
+        self.ax_plot_spectrum.clear()
         # Check if part of the spectrum is missing
         frequ_diffs = np.diff(spectrum_sorted[1])
         frequ_spacing = np.median(frequ_diffs)
         frequ_jumps = np.where(frequ_diffs > 2*frequ_spacing)[0]
         if len(frequ_jumps) == 0:
-            self.ax.plot(spectrum[1], spectrum[0], color = "#454B50")
+            self.ax_plot_spectrum.plot(spectrum[1], spectrum[0], color = "#2B2E37", lw=2)
         else: # split 
             frequ_jumps = np.concat([[0],frequ_jumps+1,[len(spectrum_sorted[1,:])]])      # 0 i, i j, j -1
             for i in range(len(frequ_jumps)-1):
-                self.ax.plot(
+                self.ax_plot_spectrum.plot(
                     spectrum_sorted[1,frequ_jumps[i]:frequ_jumps[i+1]], 
                     spectrum_sorted[0,frequ_jumps[i]:frequ_jumps[i+1]], 
-                    color = "#252931", 
+                    color = "#2B2E37", 
                     lw = 2)
-        self.ax.set_xlabel('Frequency [{}]'.format(spectrum[3]), color='white')
-        self.ax.set_ylabel('PSD', color='white')
+        # Load fits
+        fit_model = brim.fitting_models.get_fit_model(file.get_data(image_layer.metadata['Data_group']).get_analysis_results(image_layer.metadata['Analysis_result']).fit_model)
+        px_quantities = file.get_data(image_layer.metadata['Data_group']).get_analysis_results(image_layer.metadata['Analysis_result']).get_all_quantities_in_image(coord)
+        fit_x = np.arange(np.min(spectrum_sorted[1]), np.max(spectrum_sorted[1]),0.1)
+        for itype in ['Stokes', 'AntiStokes']:
+            if itype not in px_quantities['Shift']:
+                continue
+            nu0 = px_quantities['Shift'][itype].value
+            gamma = px_quantities['Width'][itype].value
+            a = px_quantities['Amplitude'][itype].value
+            b = px_quantities['Offset'][itype].value
+            self.ax_plot_spectrum.plot(fit_x, fit_model(fit_x, nu0, gamma, a, b), color = "#2FA489", lw=1.5, ls = ':')        
+        
+        # Update figure and axes 
+        self.ax_plot_spectrum.set_xlabel('Frequency [{}]'.format(spectrum[3]), color='white')
+        self.ax_plot_spectrum.set_ylabel('PSD', color='white')
         if not self._autoscale_checkbox.isChecked():
-            self.ax.set_ylim(self.spectrum_ymin, self.spectrum_ymax)
-        self.ax.set_title('Spectrum of ' + image_layer.name + '\nat pixel [{},{},{}]'.format(coord[0],coord[1],coord[2]), color='White', fontsize = 12)
-        self.fig.canvas.draw()
+            self.ax_plot_spectrum.set_ylim(self.spectrum_ymin, self.spectrum_ymax)
+        self.ax_plot_spectrum.set_title('Spectrum of ' + image_layer.name + '\nat pixel [{},{},{}]'.format(coord[0],coord[1],coord[2]), color='White', fontsize = 12)
+        self.fig_plot_spectrum.canvas.draw()
 
-    def _plot_labels_spectrum(self): #CHECK!!
-        napari.utils.notifications.show_error("Function not implemented yet.")
-        return 
-    
-        # get all pixels with label
-        layer = self._viewer.layers[self._labels_combobox.currentText()]
-        mask = layer.data == label
-        if np.sum(mask) == 0:
-            napari.utils.notifications.show_info(f"No pixels with label {label} found in the selected labels layer")
+    def _update_metadata_table(self):
+        self._metadata_table.setRowCount(0)
+        active_layer = self._viewer.layers.selection.active
+        if active_layer is None:
             return
-        # get spectra for all pixels and average
-        file = None
-        for l in self._viewer.layers:
-            if (('is_brimfile', True) in l.metadata.items()) and (l.data.shape*layer.scale == l.data.shape*l.scale).all():
-                file = l.metadata['brimfile']
-                break
-        if file is None:
-            napari.utils.notifications.show_info("No brimfile layer found with matching shape and scale to the selected labels layer")
+        if ('is_brimfile', True) not in active_layer.metadata.items():
+            return
+        brim_metadata = active_layer.metadata['brimfile'].get_data(active_layer.metadata['Data_group']).get_metadata().all_to_dict()
+        # Traverse the nested metadata dict (outer_key -> inner_key -> item) and populate table
+        for outer_key, inner_dict in brim_metadata.items():
+            if isinstance(inner_dict, dict):
+                # Add header row for outer_key
+                row = self._metadata_table.rowCount()
+                self._metadata_table.insertRow(row)
+                header_item = QTableWidgetItem(outer_key)
+                header_item.setFlags(Qt.ItemIsEnabled)  # make header row non-selectable
+                header_item.setBackground(QColor("#3F4852"))
+                header_item.setForeground(QColor("#D1D2D4"))
+                header_item.setTextAlignment(Qt.AlignCenter)
+                self._metadata_table.setItem(row, 0, header_item)
+                self._metadata_table.setSpan(row, 0, 1, 2) # span both columns
+
+                for inner_key, item in inner_dict.items():
+                    if (inner_key == 'IRF') or (inner_key == 'IRF_frequency'):
+                        continue  # skip IRF data for display
+                    row = self._metadata_table.rowCount()
+                    self._metadata_table.insertRow(row)
+                    unit = item.units if hasattr(item, 'units') else False
+                    if unit:
+                        self._metadata_table.setItem(row, 0, QTableWidgetItem(f"{inner_key} [{unit}]"))
+                    else: 
+                        self._metadata_table.setItem(row, 0, QTableWidgetItem(f"{inner_key}"))
+                    value = item.value if hasattr(item, 'value') else str(item)
+                    self._metadata_table.setItem(row, 1, QTableWidgetItem(str(value)))
+            else:
+                napari.utils.notifications.show_info("Check if brimfile metadata are valid.")
+
+    def _plot_labels_spectrum(self):
+        if self._labels_combobox.currentText() == "":
+            napari.utils.notifications.show_info("Select a brimfile layer and choose a labels layer.")
+            return 
+        # get all pixels with label
+        labels_layer = self._viewer.layers[self._labels_combobox.currentText()]
+        labels = labels_layer.data
+        n_labels = np.unique(labels[labels>0])
+        if len(n_labels) == 0:
+            napari.utils.notifications.show_info("No labels found in the selected layer.")
             return
         
-        spectra = []
-        for coord in np.argwhere(mask):
-            spectrum = file.get_data(layer.metadata['Data_group']).get_spectrum_in_image(tuple(coord))
-            spectra.append(spectrum[0])
-        avg_spectrum = np.mean(spectra, axis=0)
-        # plot average spectrum
-        self.ax.clear()
-        self.ax.plot(spectrum[1], avg_spectrum, color = "#252931", lw = 2)
-        self.ax.set_xlabel('Frequency [{}]'.format(spectrum[3]), color='white')
-        self.ax.set_ylabel('PSD', color='white')
-        self.ax.set_title(f'Average spectrum of label {label} in {layer.name}', color='White', fontsize = 12)
-        self.fig.canvas.draw()
+        brim_layer = self._viewer.layers.selection.active
+        if (brim_layer is None) or (('is_brimfile', True) not in brim_layer.metadata.items()):
+            napari.utils.notifications.show_info("A brimfile layer needs to be selected.")
+            return
+        file = brim_layer.metadata['brimfile']
 
-    
+        psd0, psd1,_,freq_unit = file.get_data(brim_layer.metadata['Data_group']).get_PSD_as_spatial_map()
+        idx = np.argsort(psd1, axis=-1)
+        psd1_sorted = np.take_along_axis(psd1, idx, axis=-1)
+        psd0_sorted = np.take_along_axis(psd0, idx, axis=-1)
+        # keep as tuple
+        psd_sorted = np.array([psd0_sorted, psd1_sorted])
+        freq_min = np.nanmin(psd_sorted[1,...])
+        freq_max = np.nanmax(psd_sorted[1,...])
+        common_freqs = np.arange(freq_min, freq_max, 0.01)
+        common_psd = np.full((psd0.shape[0], psd0.shape[1], psd0.shape[2], len(common_freqs)), np.nan)
+
+        for iz in range(psd_sorted.shape[1]):
+            for iy in range(psd_sorted.shape[2]):
+                for ix in range(psd_sorted.shape[3]):
+                    valid = ~(np.isnan(psd_sorted[1, iz, iy, ix,:]) | np.isnan(psd_sorted[0, iz, iy, ix,:]))
+                    frequ_diffs = np.diff(psd_sorted[1, iz, iy, ix,valid], axis=-1)
+                    frequ_spacing = np.median(frequ_diffs)
+                    frequ_jumps = np.where(frequ_diffs > 2*frequ_spacing)[0]
+                    if len(frequ_jumps) == 0:
+                        # interpolate and add to common freq array
+                        cs = interpolate.CubicSpline(psd_sorted[1, iz, iy, ix,valid], psd_sorted[0, iz, iy, ix,valid])
+                        covered_freqs = (common_freqs >= np.min(psd_sorted[1, iz, iy, ix,valid])) & (common_freqs <= np.max(psd_sorted[1, iz, iy, ix,valid]))
+                        common_psd[iz, iy, ix, covered_freqs] = cs(common_freqs[covered_freqs])
+                    else:
+                        # interpolate every continuous part and add to common freq array
+                        frequ_jumps = np.concat([[0],frequ_jumps+1,[len(psd_sorted[1, iz, iy, ix,valid])]])      # 0 i, i j, j -1
+                        for ifreq in range(len(frequ_jumps)-1):
+                            x = psd_sorted[1, iz, iy, ix,frequ_jumps[ifreq]:frequ_jumps[ifreq+1]]
+                            y = psd_sorted[0, iz, iy, ix,frequ_jumps[ifreq]:frequ_jumps[ifreq+1]] 
+                            cs = interpolate.CubicSpline(x, y)
+                            covered_freqs = (common_freqs >= np.min(x)) & (common_freqs <= np.max(x))
+                            common_psd[iz, iy, ix, covered_freqs] = cs(common_freqs[covered_freqs])
+
+        self.ax_regional_spectra.clear()
+        averaged_spectra = {}
+        legend_labels = []
+        for ilab in n_labels:
+            mask = labels == ilab
+            # get spectra for all pixels and average
+            spectra = np.zeros(len(common_freqs))
+            n_spectra = np.sum(mask)
+            for coord in np.argwhere(mask):
+                spectra += common_psd[coord[0], coord[1], coord[2], :]
+            averaged_spectra[ilab] = spectra / n_spectra
+
+            valid = ~np.isnan(averaged_spectra[ilab])
+            frequ_diffs = np.diff(common_freqs[valid])
+            frequ_spacing = np.median(frequ_diffs)
+            frequ_jumps = np.where(frequ_diffs > 2*frequ_spacing)[0]
+            if len(frequ_jumps) == 0:
+                spectra1, = self.ax_regional_spectra.plot(common_freqs[valid], averaged_spectra[ilab][valid], label = f'Label {ilab}', color = labels_layer.get_color(ilab))
+                legend_labels.append(spectra1)
+            else: # split 
+                frequ_jumps = np.concat([[0],frequ_jumps+1,[len(common_freqs[valid])]])      # 0 i, i j, j -1
+                for i in range(len(frequ_jumps)-1):
+                    spectra1, = self.ax_regional_spectra.plot(
+                        common_freqs[valid][frequ_jumps[i]:frequ_jumps[i+1]], 
+                        averaged_spectra[ilab][valid][frequ_jumps[i]:frequ_jumps[i+1]], 
+                        label = f'Label {ilab}',
+                        lw = 2,
+                        color = labels_layer.get_color(ilab),
+                        )
+                    if i == 0:
+                        legend_labels.append(spectra1)
+            
+            # Update summary table
+            row = self._labels_table.rowCount()
+            self._labels_table.insertRow(row)
+            self._labels_table.setItem(row, 0, QTableWidgetItem(f"{ilab}"))
+            try:
+                shift_img = file.get_data(brim_layer.metadata['Data_group']).get_analysis_results(brim_layer.metadata['Analysis_result']).get_image(brim.AnalysisResults.Quantity.Shift)[0]
+            except:
+                shift_img = None
+            try:    
+                width_img = file.get_data(brim_layer.metadata['Data_group']).get_analysis_results(brim_layer.metadata['Analysis_result']).get_image(brim.AnalysisResults.Quantity.Width)[0]
+            except:
+                width_img = None
+            if shift_img is not None:
+                mean_shift = np.round(np.mean(shift_img[mask]),3)
+                std_shift = np.round(np.std(shift_img[mask]),3)
+                self._labels_table.setItem(row, 1, QTableWidgetItem(str(mean_shift)))
+                self._labels_table.setItem(row, 2, QTableWidgetItem(str(std_shift)))
+            if width_img is not None:
+                mean_width = np.round(np.mean(width_img[mask]),3)
+                std_width = np.round(np.std(width_img[mask]),3)
+                self._labels_table.setItem(row, 3, QTableWidgetItem(str(mean_width)))
+                self._labels_table.setItem(row, 4, QTableWidgetItem(str(std_width)))
+            
+        self.ax_regional_spectra.set_xlabel('Frequency [{}]'.format(freq_unit), color='white')
+        self.ax_regional_spectra.set_ylabel('PSD', color='white')   
+        self.ax_regional_spectra.legend(
+            handles=legend_labels,
+            loc='upper center',
+            bbox_to_anchor=(0.5, 1.2),   # x=centre, y=below axes
+            ncols=3,   
+            )
+        self.fig_regional_spectra.canvas.draw()
+        self.fig_regional_spectra.get_layout_engine().set(rect=(0, 0, 1, 0.9))
+
+        
