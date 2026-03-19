@@ -18,7 +18,7 @@ Inspetion and analysis tools by adding the [widget contribution](https://napari.
 
 Example Screenshot of the Spectra Analysis Tools widget displaying the metadata of the opened drosophila_LSBM sample data: 
 
-<img width="800" height="470" alt="brillouin-imaging-napari-screenshot" src="images/brillouin-imaging-napari-screenshot.png" />
+<img width="800" height="470" alt="brillouin-imaging-napari-screenshot" src="https://raw.githubusercontent.com/prevedel-lab/brillouin-imaging-napari/main/images/brillouin-imaging-napari-screenshot.png"/>
 
 ## How to install it
 
