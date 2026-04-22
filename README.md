@@ -4,7 +4,7 @@
 
 *brillouin-imaging* is a napari plugin to work with brim (**Br**illouin **im**aging) files, containing spectral data and metadata from Brillouin microscopy.
 
-More information about the scope and definition of the brim file format can be found [here](https://github.com/prevedel-lab/Brillouin-standard-file).
+More information about the scope and definition of the brim file format can be found [here](https://github.com/brillouin-imaging/Brillouin-standard-file).
 
 The brillouin-imaging plugin implements three contributions:
 - *reader*  
@@ -18,7 +18,7 @@ Inspetion and analysis tools by adding the [widget contribution](https://napari.
 
 Example Screenshot of the Spectra Analysis Tools widget displaying the metadata of the opened drosophila_LSBM sample data: 
 
-<img width="800" height="470" alt="brillouin-imaging-napari-screenshot" src="https://raw.githubusercontent.com/prevedel-lab/brillouin-imaging-napari/main/images/brillouin-imaging-napari-screenshot.png"/>
+<img width="800" height="470" alt="brillouin-imaging-napari-screenshot" src="https://raw.githubusercontent.com/brillouin-imaging/brillouin-imaging-napari/main/images/brillouin-imaging-napari-screenshot.png"/>
 
 ## How to install it
 

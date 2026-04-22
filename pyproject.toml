@@ -46,8 +46,8 @@ testing = [
 ]
 
 [project.urls]
-Repository = "https://github.com/prevedel-lab/brillouin-imaging-napari"
-Issues = "https://github.com/prevedel-lab/brillouin-imaging-napari/issues"
+Repository = "https://github.com/brillouin-imaging/brillouin-imaging-napari"
+Issues = "https://github.com/brillouin-imaging/brillouin-imaging-napari/issues"
 
 [project.entry-points."napari.manifest"]
 brillouin-imaging = "brillouin_imaging:napari.yaml"
