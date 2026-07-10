@@ -40,10 +40,18 @@ from qtpy.QtWidgets import QHBoxLayout, QVBoxLayout, QPushButton, QCheckBox, QWi
 from qtpy.QtCore import Qt, QLocale
 from qtpy.QtGui import QColor
 import brimfile as brim
-import matplotlib.pyplot as plt
-from matplotlib.backends.backend_qt5agg import FigureCanvas
 import numpy as np
 from scipy import interpolate
+
+try:
+    import matplotlib.pyplot as plt
+    from matplotlib.backends.backend_qt5agg import FigureCanvas
+except ImportError as matplotlib_import_error:
+    plt = None
+    FigureCanvas = None
+    _MATPLOTLIB_IMPORT_ERROR = matplotlib_import_error
+else:
+    _MATPLOTLIB_IMPORT_ERROR = None
 
 
 
@@ -51,6 +59,10 @@ from scipy import interpolate
 # magicgui `Container`
 class SpectraTools(Container):
     def __init__(self, viewer: "napari.viewer.Viewer"):
+        if _MATPLOTLIB_IMPORT_ERROR is not None:
+            raise ImportError( "matplotlib is required for Spectra Analysis Tools. Run "
+                "`pip install 'brillouin-imaging[plotting]'`") from _MATPLOTLIB_IMPORT_ERROR
+
         super().__init__()
         self._viewer = viewer
 

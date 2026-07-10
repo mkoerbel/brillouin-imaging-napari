@@ -3,18 +3,39 @@ from unittest.mock import Mock, patch, MagicMock
 import pytest
 import numpy as np
 
-# Skip all tests in this module if imports fail due to missing dependencies
-pytest.importorskip("matplotlib")
-pytest.importorskip("matplotlib.backends.backend_qt5agg")
-
 try:
+    import brillouin_imaging._spectra_tools as spectra_tools_module
     from brillouin_imaging._spectra_tools import SpectraTools
+    MATPLOTLIB_AVAILABLE = spectra_tools_module._MATPLOTLIB_IMPORT_ERROR is None
     SPECTRA_TOOLS_AVAILABLE = True
 except ImportError:
+    MATPLOTLIB_AVAILABLE = False
     SPECTRA_TOOLS_AVAILABLE = False
     SpectraTools = None
+    spectra_tools_module = None
 
 
+def test_spectra_tools_warns_when_matplotlib_missing(monkeypatch):
+    """Test that the widget raises ImportError before Container init."""
+    monkeypatch.setattr(
+        spectra_tools_module,
+        "_MATPLOTLIB_IMPORT_ERROR",
+        ImportError("matplotlib missing"),
+    )
+
+    with patch.object(
+        spectra_tools_module.Container, "__init__", autospec=True
+    ) as container_init:
+        with pytest.raises(ImportError):
+            SpectraTools(MagicMock())
+
+    container_init.assert_not_called()
+
+
+@pytest.mark.skipif(
+    not MATPLOTLIB_AVAILABLE,
+    reason="Spectra tools GUI tests require matplotlib",
+)
 @pytest.mark.skipif(not SPECTRA_TOOLS_AVAILABLE, reason="Spectra tools module not available")
 class TestSpectraTools:
     """Tests for SpectraTools widget."""
@@ -287,6 +308,10 @@ class TestSpectraTools:
         assert widget.spectrum_ymin <= min(psd)
 
 
+@pytest.mark.skipif(
+    not MATPLOTLIB_AVAILABLE,
+    reason="Spectra tools integration tests require matplotlib",
+)
 @pytest.mark.skipif(not SPECTRA_TOOLS_AVAILABLE, reason="Spectra tools module not available")
 class TestSpectraToolsIntegration:
     """Integration tests for SpectraTools widget."""
