@@ -5,13 +5,11 @@ import numpy as np
 
 try:
     import brillouin_imaging._spectra_tools as spectra_tools_module
-    from brillouin_imaging._spectra_tools import SpectraTools
     MATPLOTLIB_AVAILABLE = spectra_tools_module._MATPLOTLIB_IMPORT_ERROR is None
     SPECTRA_TOOLS_AVAILABLE = True
 except ImportError:
     MATPLOTLIB_AVAILABLE = False
     SPECTRA_TOOLS_AVAILABLE = False
-    SpectraTools = None
     spectra_tools_module = None
 
 
@@ -28,7 +26,7 @@ def test_spectra_tools_warns_when_matplotlib_missing(monkeypatch):
         spectra_tools_module.Container, "__init__", autospec=True
     ) as container_init:
         with pytest.raises(ImportError):
-            SpectraTools(MagicMock())
+            spectra_tools_module.SpectraTools(MagicMock())
 
     container_init.assert_not_called()
 
@@ -48,7 +46,7 @@ class TestSpectraTools:
         viewer = make_napari_viewer()
         
         # Initialize the widget
-        widget = SpectraTools(viewer)
+        widget = spectra_tools_module.SpectraTools(viewer)
         
         # Add widget to qtbot for proper cleanup (napari guideline)
         qtbot.addWidget(widget.native)
@@ -64,7 +62,7 @@ class TestSpectraTools:
     def test_spectra_tools_has_checkbox(self, qtbot, make_napari_viewer):
         """Test that SpectraTools widget has autoscale checkbox."""
         viewer = make_napari_viewer()
-        widget = SpectraTools(viewer)
+        widget = spectra_tools_module.SpectraTools(viewer)
         
         # Add widget to qtbot for proper cleanup (napari guideline)
         qtbot.addWidget(widget.native)
@@ -378,7 +376,7 @@ class TestSpectraToolsIntegration:
         viewer = make_napari_viewer()
         
         # This should not raise
-        widget = SpectraTools(viewer)
+        widget = spectra_tools_module.SpectraTools(viewer)
         
         # Add widget to qtbot for proper cleanup (napari guideline)
         qtbot.addWidget(widget.native)
