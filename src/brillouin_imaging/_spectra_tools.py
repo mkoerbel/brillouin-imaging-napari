@@ -466,6 +466,7 @@ class SpectraTools(Container):
         raw_image = np.asarray(raw_image)
 
         self.ax_vipa_rawdata.clear()
+        self.ax_vipa_rawdata.set_axis_off()
         self.ax_vipa_rawdata.imshow(raw_image, cmap='gray', origin='upper')
         if spectral_line is not None:
             y_start, x_start, y_end, x_end = spectral_line
