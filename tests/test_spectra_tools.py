@@ -54,8 +54,8 @@ class TestSpectraTools:
         
         # Verify basic attributes are set
         assert widget._viewer == viewer
-        assert hasattr(widget, 'fig')
-        assert hasattr(widget, 'ax')
+        assert hasattr(widget, 'fig_plot_spectrum')
+        assert hasattr(widget, 'ax_plot_spectrum')
         assert widget.spectrum_ymax == 0
         assert widget.spectrum_ymin == 1E6
 
@@ -285,6 +285,16 @@ class TestSpectraTools:
         mock_file = MagicMock()
         mock_data_group = MagicMock()
         mock_data_group.get_spectrum_in_image.return_value = (psd, frequencies, None, 'GHz')
+
+        mock_analysis_result = MagicMock()
+        mock_analysis_result.fit_model = "Lorentzian"
+        mock_analysis_result.get_all_quantities_in_image.return_value = {
+            'Shift': {},
+            'Width': {},
+            'Amplitude': {},
+            'Offset': {},
+        }
+        mock_data_group.get_analysis_results.return_value = mock_analysis_result
         mock_file.get_data.return_value = mock_data_group
         
         mock_layer = MagicMock()
@@ -292,13 +302,19 @@ class TestSpectraTools:
         mock_layer.name = "Test Layer"
         mock_layer.metadata = {
             'brimfile': mock_file,
-            'Data_group': 0
+            'Data_group': 0,
+            'Analysis_result': 0,
         }
         mock_layer.data.shape = (10, 10, 10)
         
         # Call _load_spectrum with valid coordinates
         coord = (1, 2, 3)
-        widget._load_spectrum(coord, mock_layer)
+        with patch.object(
+            spectra_tools_module.brim.fitting_models,
+            'get_fit_model',
+            return_value=lambda x, nu0, gamma, a, b: np.zeros_like(x),
+        ):
+            widget._load_spectrum(coord, mock_layer)
         
         # Verify that the spectrum was requested
         mock_data_group.get_spectrum_in_image.assert_called_once_with(coord)
@@ -306,6 +322,45 @@ class TestSpectraTools:
         # Verify that the plot was updated
         assert widget.spectrum_ymax >= max(psd)
         assert widget.spectrum_ymin <= min(psd)
+
+    @pytest.mark.qt
+    def test_load_vipa_rawdata_plots_image_and_overlay(self, qtbot, make_napari_viewer):
+        """Test that _load_VIPA_rawdata draws the raw image and spectral line overlay."""
+        viewer = make_napari_viewer()
+        widget = SpectraTools(viewer)
+
+        qtbot.addWidget(widget.native)
+
+        raw_image = np.arange(16, dtype=float).reshape(4, 4)
+        spectral_line = (1, 0, 2, 3)
+        linewidth = 2
+        coord = (1, 1, 1)
+
+        mock_file = MagicMock()
+        mock_file.subtype = spectra_tools_module.brim.subtypes.SubType.SinglePoint_VIPA_v0_1
+
+        mock_layer = MagicMock()
+        mock_layer.visible = True
+        mock_layer.data.shape = (4, 4, 4)
+        mock_layer.metadata = {
+            'brimfile': mock_file,
+            'Data_group': 0,
+        }
+
+        with patch.object(
+            spectra_tools_module.single_point_VIPA,
+            'get_raw_spectrum_in_image',
+            return_value=(raw_image, spectral_line, linewidth),
+        ):
+            widget._load_VIPA_rawdata(coord, mock_layer)
+
+        assert len(widget.ax_vipa_rawdata.images) == 1
+        assert len(widget.ax_vipa_rawdata.lines) == 1
+        assert np.array_equal(widget.ax_vipa_rawdata.images[0].get_array(), raw_image)
+
+        line = widget.ax_vipa_rawdata.lines[0]
+        assert np.array_equal(line.get_xdata(), np.array([0, 3]))
+        assert np.array_equal(line.get_ydata(), np.array([1, 2]))
 
 
 @pytest.mark.skipif(
