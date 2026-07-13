@@ -279,8 +279,8 @@ class SpectraTools(Container):
         # Add Widgets to tab
         tabs.addTab(inspect_metadata_widget, "Inspect Metadata")
         tabs.addTab(spectrum_plotting_widget, "Plot Spectrum at Pixel")
+        self._vipa_tab_widget = vipadata_widget
         tabs.addTab(vipadata_widget, "VIPA Raw Data")
-        self._VIPA_TAB_INDEX = tabs.count() - 1
         # Hide the VIPA raw data tab if no brimfile layer with VIPA data is present
         self._update_vipa_tab_visibility()
         tabs.addTab(spectral_image_widget, "Create Spectral Image")
@@ -291,6 +291,7 @@ class SpectraTools(Container):
         self._viewer.layers.events.inserted.connect(self._update_labels_combobox)
         self._viewer.layers.events.removed.connect(self._update_labels_combobox)
 
+        self._viewer.layers.selection.events.changed.connect(self._update_vipa_tab_visibility)
         self._viewer.layers.events.inserted.connect(self._update_vipa_tab_visibility)
         self._viewer.layers.events.removed.connect(self._update_vipa_tab_visibility)
 
@@ -303,19 +304,16 @@ class SpectraTools(Container):
         self.native.layout().addWidget(tabs)
 
     def _update_vipa_tab_visibility(self, event=None):
-        brim_file = next(
-            (
-                layer.metadata.get('brimfile')
-                for layer in self._viewer.layers
-                if layer.metadata.get('is_brimfile') is True
-                and layer.metadata.get('brimfile') is not None
-            ),
-            None,
+        active_layer = self._viewer.layers.selection.active
+        is_VIPA_brim = (
+            active_layer is not None
+            and bool(active_layer.metadata.get('is_brimfile'))
+            and active_layer.metadata.get('brimfile') is not None
+            and active_layer.metadata['brimfile'].subtype == brim.subtypes.SubType.SinglePoint_VIPA_v0_1
         )
-        is_VIPA_brim = False
-        if brim_file:
-            is_VIPA_brim = brim_file.subtype == brim.subtypes.SubType.SinglePoint_VIPA_v0_1
-        self._tabs.setTabVisible(self._VIPA_TAB_INDEX, is_VIPA_brim)
+        tab_index = self._tabs.indexOf(self._vipa_tab_widget)
+        if tab_index >= 0:
+            self._tabs.setTabVisible(tab_index, is_VIPA_brim)
 
     def _create_labels_layer(self):
         layer = self._viewer.layers.selection.active
