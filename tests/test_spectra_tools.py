@@ -3,18 +3,38 @@ from unittest.mock import Mock, patch, MagicMock
 import pytest
 import numpy as np
 
-# Skip all tests in this module if imports fail due to missing dependencies
-pytest.importorskip("matplotlib")
-pytest.importorskip("matplotlib.backends.backend_qt5agg")
-
 try:
-    from brillouin_imaging._spectra_tools import SpectraTools
+    import brillouin_imaging._spectra_tools as spectra_tools_module
+    MATPLOTLIB_AVAILABLE = spectra_tools_module._MATPLOTLIB_IMPORT_ERROR is None
     SPECTRA_TOOLS_AVAILABLE = True
 except ImportError:
+    MATPLOTLIB_AVAILABLE = False
     SPECTRA_TOOLS_AVAILABLE = False
-    SpectraTools = None
+    spectra_tools_module = None
 
 
+@pytest.mark.skipif(not SPECTRA_TOOLS_AVAILABLE, reason="Spectra tools module not available")
+def test_spectra_tools_warns_when_matplotlib_missing(monkeypatch):
+    """Test that the widget raises ImportError before Container init."""
+    monkeypatch.setattr(
+        spectra_tools_module,
+        "_MATPLOTLIB_IMPORT_ERROR",
+        ImportError("matplotlib missing"),
+    )
+
+    with patch.object(
+        spectra_tools_module.Container, "__init__", autospec=True
+    ) as container_init:
+        with pytest.raises(ImportError):
+            spectra_tools_module.SpectraTools(MagicMock())
+
+    container_init.assert_not_called()
+
+
+@pytest.mark.skipif(
+    not MATPLOTLIB_AVAILABLE,
+    reason="Spectra tools GUI tests require matplotlib",
+)
 @pytest.mark.skipif(not SPECTRA_TOOLS_AVAILABLE, reason="Spectra tools module not available")
 class TestSpectraTools:
     """Tests for SpectraTools widget."""
@@ -26,15 +46,15 @@ class TestSpectraTools:
         viewer = make_napari_viewer()
         
         # Initialize the widget
-        widget = SpectraTools(viewer)
+        widget = spectra_tools_module.SpectraTools(viewer)
         
         # Add widget to qtbot for proper cleanup (napari guideline)
         qtbot.addWidget(widget.native)
         
         # Verify basic attributes are set
         assert widget._viewer == viewer
-        assert hasattr(widget, 'fig')
-        assert hasattr(widget, 'ax')
+        assert hasattr(widget, 'fig_plot_spectrum')
+        assert hasattr(widget, 'ax_plot_spectrum')
         assert widget.spectrum_ymax == 0
         assert widget.spectrum_ymin == 1E6
 
@@ -42,7 +62,7 @@ class TestSpectraTools:
     def test_spectra_tools_has_checkbox(self, qtbot, make_napari_viewer):
         """Test that SpectraTools widget has autoscale checkbox."""
         viewer = make_napari_viewer()
-        widget = SpectraTools(viewer)
+        widget = spectra_tools_module.SpectraTools(viewer)
         
         # Add widget to qtbot for proper cleanup (napari guideline)
         qtbot.addWidget(widget.native)
@@ -264,6 +284,16 @@ class TestSpectraTools:
         mock_file = MagicMock()
         mock_data_group = MagicMock()
         mock_data_group.get_spectrum_in_image.return_value = (psd, frequencies, None, 'GHz')
+
+        mock_analysis_result = MagicMock()
+        mock_analysis_result.fit_model = "Lorentzian"
+        mock_analysis_result.get_all_quantities_in_image.return_value = {
+            'Shift': {},
+            'Width': {},
+            'Amplitude': {},
+            'Offset': {},
+        }
+        mock_data_group.get_analysis_results.return_value = mock_analysis_result
         mock_file.get_data.return_value = mock_data_group
         
         mock_layer = MagicMock()
@@ -271,13 +301,19 @@ class TestSpectraTools:
         mock_layer.name = "Test Layer"
         mock_layer.metadata = {
             'brimfile': mock_file,
-            'Data_group': 0
+            'Data_group': 0,
+            'Analysis_result': 0,
         }
         mock_layer.data.shape = (10, 10, 10)
         
         # Call _load_spectrum with valid coordinates
         coord = (1, 2, 3)
-        widget._load_spectrum(coord, mock_layer)
+        with patch.object(
+            spectra_tools_module.brim.fitting_models,
+            'get_fit_model',
+            return_value=lambda x, nu0, gamma, a, b: np.zeros_like(x),
+        ):
+            widget._load_spectrum(coord, mock_layer)
         
         # Verify that the spectrum was requested
         mock_data_group.get_spectrum_in_image.assert_called_once_with(coord)
@@ -286,7 +322,50 @@ class TestSpectraTools:
         assert widget.spectrum_ymax >= max(psd)
         assert widget.spectrum_ymin <= min(psd)
 
+    @pytest.mark.qt
+    def test_load_vipa_rawdata_plots_image_and_overlay(self, qtbot, make_napari_viewer):
+        """Test that _load_VIPA_rawdata draws the raw image and spectral line overlay."""
+        viewer = make_napari_viewer()
+        widget = SpectraTools(viewer)
 
+        qtbot.addWidget(widget.native)
+
+        raw_image = np.arange(16, dtype=float).reshape(4, 4)
+        spectral_line = (1, 0, 2, 3)
+        linewidth = 2
+        coord = (1, 1, 1)
+
+        mock_file = MagicMock()
+        mock_file.subtype = spectra_tools_module.brim.subtypes.SubType.SinglePoint_VIPA_v0_1
+
+        mock_layer = MagicMock()
+        mock_layer.visible = True
+        mock_layer.data.shape = (4, 4, 4)
+        mock_layer.metadata = {
+            'brimfile': mock_file,
+            'Data_group': 0,
+        }
+
+        with patch.object(
+            spectra_tools_module.single_point_VIPA,
+            'get_raw_spectrum_in_image',
+            return_value=(raw_image, spectral_line, linewidth),
+        ):
+            widget._load_VIPA_rawdata(coord, mock_layer)
+
+        assert len(widget.ax_vipa_rawdata.images) == 1
+        assert len(widget.ax_vipa_rawdata.lines) == 1
+        assert np.array_equal(widget.ax_vipa_rawdata.images[0].get_array(), raw_image)
+
+        line = widget.ax_vipa_rawdata.lines[0]
+        assert np.array_equal(line.get_xdata(), np.array([0, 3]))
+        assert np.array_equal(line.get_ydata(), np.array([1, 2]))
+
+
+@pytest.mark.skipif(
+    not MATPLOTLIB_AVAILABLE,
+    reason="Spectra tools integration tests require matplotlib",
+)
 @pytest.mark.skipif(not SPECTRA_TOOLS_AVAILABLE, reason="Spectra tools module not available")
 class TestSpectraToolsIntegration:
     """Integration tests for SpectraTools widget."""
@@ -297,7 +376,7 @@ class TestSpectraToolsIntegration:
         viewer = make_napari_viewer()
         
         # This should not raise
-        widget = SpectraTools(viewer)
+        widget = spectra_tools_module.SpectraTools(viewer)
         
         # Add widget to qtbot for proper cleanup (napari guideline)
         qtbot.addWidget(widget.native)

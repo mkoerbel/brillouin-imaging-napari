@@ -31,7 +31,7 @@ dependencies = [
     "numpy",
     "magicgui",
     "qtpy",
-    "brimfile[remote-store]>=1.5.0,<2.0.0",
+    "brimfile[remote-store]>=1.6.0,<2.0.0",
 ]
 
 [project.optional-dependencies]
@@ -42,6 +42,9 @@ testing = [
     "pytest-qt",  # https://pytest-qt.readthedocs.io/en/latest/
     "napari",
     "pyqt5",
+]
+plotting = [
+    "matplotlib",
 ]
 
 [project.urls]

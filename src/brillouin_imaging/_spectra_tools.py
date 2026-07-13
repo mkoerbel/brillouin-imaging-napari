@@ -40,10 +40,19 @@ from qtpy.QtWidgets import QHBoxLayout, QVBoxLayout, QPushButton, QCheckBox, QWi
 from qtpy.QtCore import Qt, QLocale
 from qtpy.QtGui import QColor
 import brimfile as brim
-import matplotlib.pyplot as plt
-from matplotlib.backends.backend_qt5agg import FigureCanvas
+from brimfile.subtypes import single_point_VIPA
 import numpy as np
 from scipy import interpolate
+
+try:
+    import matplotlib.pyplot as plt
+    from matplotlib.backends.backend_qt5agg import FigureCanvas
+except ImportError as matplotlib_import_error:
+    plt = None
+    FigureCanvas = None
+    _MATPLOTLIB_IMPORT_ERROR = matplotlib_import_error
+else:
+    _MATPLOTLIB_IMPORT_ERROR = None
 
 
 
@@ -51,6 +60,10 @@ from scipy import interpolate
 # magicgui `Container`
 class SpectraTools(Container):
     def __init__(self, viewer: "napari.viewer.Viewer"):
+        if _MATPLOTLIB_IMPORT_ERROR is not None:
+            raise ImportError( "matplotlib is required for Spectra Analysis Tools. Run "
+                "`pip install 'brillouin-imaging[plotting]'`") from _MATPLOTLIB_IMPORT_ERROR
+
         super().__init__()
         self._viewer = viewer
 
@@ -79,11 +92,18 @@ class SpectraTools(Container):
         self.ax_regional_spectra.yaxis.label.set_color('white')
         self.ax_regional_spectra.xaxis.label.set_color('white')
 
+        # Plot VIPA raw image matplotlib figure
+        self.fig_vipa_rawdata, self.ax_vipa_rawdata = plt.subplots()
+        self.fig_vipa_rawdata.set_layout_engine('constrained')
+        self.fig_vipa_rawdata.patch.set_alpha(0)
+        self.ax_vipa_rawdata.set_axis_off()
+
         # connect your own callbacks
         self._connect_mouse_events()
 
         # Tabs - add different widgets
         tabs = QTabWidget()
+        self._tabs = tabs
         tabs.setTabPosition(QTabWidget.TabPosition.North)
         tabs.setMovable(True)
         tabs.setDocumentMode(True)
@@ -159,6 +179,18 @@ class SpectraTools(Container):
         spectrum_plotting_layout.addWidget(spectrum_plotting_text)
         spectrum_plotting_layout.addWidget(FigureCanvas(self.fig_plot_spectrum))
         spectrum_plotting_layout.addWidget(self._autoscale_checkbox)
+
+        # VIPA raw data tab
+        vipadata_widget = QWidget()
+        vipadata_layout = QVBoxLayout()
+        vipadata_widget.setLayout(vipadata_layout)
+        vipadata_text = QLabel(text='Display the raw VIPA image of a single pixel in an active brimfile layer. If available, the spectral line is overlaid.')
+        vipadata_text.setStyleSheet("color: #626972;")
+        vipadata_text.setAlignment(Qt.AlignCenter)
+        vipadata_text.setWordWrap(True)
+        vipadata_text.setMaximumHeight(70)
+        vipadata_layout.addWidget(vipadata_text)
+        vipadata_layout.addWidget(FigureCanvas(self.fig_vipa_rawdata))
 
         # Spectral Image tab
         spectral_image_widget = QWidget()
@@ -247,6 +279,10 @@ class SpectraTools(Container):
         # Add Widgets to tab
         tabs.addTab(inspect_metadata_widget, "Inspect Metadata")
         tabs.addTab(spectrum_plotting_widget, "Plot Spectrum at Pixel")
+        self._vipa_tab_widget = vipadata_widget
+        tabs.addTab(vipadata_widget, "VIPA Raw Data")
+        # Hide the VIPA raw data tab if no brimfile layer with VIPA data is present
+        self._update_vipa_tab_visibility()
         tabs.addTab(spectral_image_widget, "Create Spectral Image")
         tabs.addTab(labels_widget, "Regional Spectra Analysis")
 
@@ -255,6 +291,10 @@ class SpectraTools(Container):
         self._viewer.layers.events.inserted.connect(self._update_labels_combobox)
         self._viewer.layers.events.removed.connect(self._update_labels_combobox)
 
+        self._viewer.layers.selection.events.changed.connect(self._update_vipa_tab_visibility)
+        self._viewer.layers.events.inserted.connect(self._update_vipa_tab_visibility)
+        self._viewer.layers.events.removed.connect(self._update_vipa_tab_visibility)
+
         self._update_metadata_table()
         self._viewer.layers.selection.events.changed.connect(self._update_metadata_table)
         self._viewer.layers.events.inserted.connect(self._update_metadata_table)
@@ -262,6 +302,18 @@ class SpectraTools(Container):
 
         # Add Tabs widget to Napari widget
         self.native.layout().addWidget(tabs)
+
+    def _update_vipa_tab_visibility(self, event=None):
+        active_layer = self._viewer.layers.selection.active
+        is_VIPA_brim = (
+            active_layer is not None
+            and bool(active_layer.metadata.get('is_brimfile'))
+            and active_layer.metadata.get('brimfile') is not None
+            and active_layer.metadata['brimfile'].subtype == brim.subtypes.SubType.SinglePoint_VIPA_v0_1
+        )
+        tab_index = self._tabs.indexOf(self._vipa_tab_widget)
+        if tab_index >= 0:
+            self._tabs.setTabVisible(tab_index, is_VIPA_brim)
 
     def _create_labels_layer(self):
         layer = self._viewer.layers.selection.active
@@ -354,6 +406,7 @@ class SpectraTools(Container):
                 coord = layer.world_to_data(event.position) 
                 coord = np.round(np.array(coord)).astype(int)
                 self._load_spectrum(tuple(coord), layer)
+                self._load_VIPA_rawdata(tuple(coord), layer)
 
         # Attach callback to the viewer (not to each layer)
         self._viewer.mouse_drag_callbacks.append(on_click)
@@ -361,16 +414,87 @@ class SpectraTools(Container):
     def _reset_autoscale(self):
         self.spectrum_ymax = 0
         self.spectrum_ymin = 1E6
-
-    def _load_spectrum(self, coord, image_layer):
-        file = image_layer.metadata['brimfile']
+    
+    def _mouse_event_is_valid(self, coord, image_layer):
         if image_layer.visible == False:
-            return
+            return False
         # check if coords are within image
         image_shape = image_layer.data.shape
         for i in range(len(image_shape)):
             if (coord[i] < 0) | (coord[i] > image_shape[i]-1):
-                return
+                return False
+        return True
+
+    def _linewidth_data_to_points(self, linewidth_data, x_start, y_start, x_end, y_end):
+        """Convert a linewidth in image data units (pixels) to matplotlib points."""
+        #TODO: check if this methd is robust to scaling of the axis
+        # look at https://stackoverflow.com/questions/43495016/matplotlib-line-width-based-on-axis-not-on-points for alternative methods
+        if linewidth_data is None:
+            linewidth_data = 1.0
+        linewidth_data = float(linewidth_data)
+        if linewidth_data <= 0:
+            return 0.1
+
+        # Build a unit normal to the spectral line in data coordinates.
+        dx = float(x_end) - float(x_start)
+        dy = float(y_end) - float(y_start)
+        seg_len = np.hypot(dx, dy)
+        if seg_len == 0:
+            nx, ny = 1.0, 0.0
+        else:
+            nx, ny = -dy / seg_len, dx / seg_len
+
+        xm = 0.5 * (float(x_start) + float(x_end))
+        ym = 0.5 * (float(y_start) + float(y_end))
+        p0 = self.ax_vipa_rawdata.transData.transform((xm, ym))
+        p1 = self.ax_vipa_rawdata.transData.transform((xm + nx * linewidth_data, ym + ny * linewidth_data))
+        linewidth_pixels = float(np.hypot(*(p1 - p0)))
+        linewidth_points = linewidth_pixels * 72.0 / self.fig_vipa_rawdata.dpi
+
+        return max(linewidth_points, 0.1)
+
+    def _load_VIPA_rawdata(self, coord, image_layer):
+        if not self._mouse_event_is_valid(coord, image_layer):
+            return
+        file = image_layer.metadata['brimfile']
+        if file.subtype != brim.subtypes.SubType.SinglePoint_VIPA_v0_1:
+            return
+        data_group = file.get_data(image_layer.metadata['Data_group'])
+        raw_image, spectral_line, linewidth = single_point_VIPA.get_raw_spectrum_in_image(data_group, coord)
+        raw_image = np.asarray(raw_image)
+
+        self.ax_vipa_rawdata.clear()
+        self.ax_vipa_rawdata.set_axis_off()
+        self.ax_vipa_rawdata.imshow(raw_image, cmap='gray', origin='upper')
+        if spectral_line is not None:
+            y_start, x_start, y_end, x_end = spectral_line
+            linewidth_data = linewidth if linewidth is not None else 1.0
+            linewidth_points = self._linewidth_data_to_points(
+                linewidth_data,
+                x_start,
+                y_start,
+                x_end,
+                y_end,
+            )
+            self.ax_vipa_rawdata.plot(
+                [x_start, x_end],
+                [y_start, y_end],
+                color="#D27F75",
+                alpha=0.2,
+                linewidth=linewidth_points,
+                solid_capstyle='round',
+            )
+        self.ax_vipa_rawdata.set_title(
+            f'Raw VIPA image at pixel [{coord[0]},{coord[1]},{coord[2]}]',
+            color='white',
+            fontsize=12,
+        )
+        self.fig_vipa_rawdata.canvas.draw()
+
+    def _load_spectrum(self, coord, image_layer):
+        if not self._mouse_event_is_valid(coord, image_layer):
+            return
+        file = image_layer.metadata['brimfile']
 
         # plot spectrum
         spectrum = file.get_data(image_layer.metadata['Data_group']).get_spectrum_in_image(coord)
@@ -388,7 +512,7 @@ class SpectraTools(Container):
         if len(frequ_jumps) == 0:
             self.ax_plot_spectrum.plot(spectrum[1], spectrum[0], color = "#2B2E37", lw=2)
         else: # split 
-            frequ_jumps = np.concat([[0],frequ_jumps+1,[len(spectrum_sorted[1,:])]])      # 0 i, i j, j -1
+            frequ_jumps = np.concatenate([[0],frequ_jumps+1,[len(spectrum_sorted[1,:])]])      # 0 i, i j, j -1
             for i in range(len(frequ_jumps)-1):
                 self.ax_plot_spectrum.plot(
                     spectrum_sorted[1,frequ_jumps[i]:frequ_jumps[i+1]], 
