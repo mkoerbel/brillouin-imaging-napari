@@ -514,7 +514,7 @@ class SpectraTools(Container):
         if len(frequ_jumps) == 0:
             self.ax_plot_spectrum.plot(spectrum[1], spectrum[0], color = "#2B2E37", lw=2)
         else: # split 
-            frequ_jumps = np.concat([[0],frequ_jumps+1,[len(spectrum_sorted[1,:])]])      # 0 i, i j, j -1
+            frequ_jumps = np.concatenate([[0],frequ_jumps+1,[len(spectrum_sorted[1,:])]])      # 0 i, i j, j -1
             for i in range(len(frequ_jumps)-1):
                 self.ax_plot_spectrum.plot(
                     spectrum_sorted[1,frequ_jumps[i]:frequ_jumps[i+1]], 
