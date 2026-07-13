@@ -10,8 +10,6 @@ from __future__ import annotations
 
 from ._reader import reader_function
 
-load_from_EMBL = True
-
 
 def load_sample_data(url: str):
     """Generates an image"""
@@ -23,27 +21,15 @@ def load_sample_data(url: str):
     reader_function(url)
     return [(None,),]
 
-def sample_data_drosophila():
-    if load_from_EMBL:
-        url = 'https://s3.embl.de/brim-example-files/drosophila_LSBM.brim.zarr'
-    else:
-        url = 'https://storage.googleapis.com/brim-example-files/drosophila_LSBM.brim.zarr'
+def sample_data_drosophila():    
+    url = 'https://s3.embl.de/brim-example-files/drosophila_LSBM.brim.zarr'
     return load_sample_data(url)
 def sample_data_zfeye():
-    if load_from_EMBL:
-        url = 'https://s3.embl.de/brim-example-files/zebrafish_eye_confocal.brim.zarr'
-    else:
-        url = 'https://storage.googleapis.com/brim-example-files/zebrafish_eye_confocal.brim.zarr'
+    url = 'https://s3.embl.de/brim-example-files/zebrafish_eye_confocal.brim.zarr'
     return load_sample_data(url)
 def sample_data_zfSBS():
-    if load_from_EMBL:
-        url = 'https://s3.embl.de/brim-example-files/zebrafish_ECM_SBS.brim.zarr'
-    else:
-        url = 'https://storage.googleapis.com/brim-example-files/zebrafish_ECM_SBS.brim.zarr'
+    url = 'https://s3.embl.de/brim-example-files/zebrafish_ECM_SBS.brim.zarr'
     return load_sample_data(url)
 def sample_data_beadsFTBM():
-    if load_from_EMBL:
-        url = 'https://s3.embl.de/brim-example-files/oil_beads_FTBM.brim.zarr'
-    else:
-        url = 'https://storage.googleapis.com/brim-example-files/oil_beads_FTBM.brim.zarr'
+    url = 'https://s3.embl.de/brim-example-files/oil_beads_FTBM.brim.zarr'
     return load_sample_data(url)
