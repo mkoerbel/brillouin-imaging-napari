@@ -184,7 +184,7 @@ class SpectraTools(Container):
         vipadata_widget = QWidget()
         vipadata_layout = QVBoxLayout()
         vipadata_widget.setLayout(vipadata_layout)
-        vipadata_text = QLabel(text='Click on a pixel in a VIPA Brillouin layer to show the raw spectrum image with the detected spectral line overlaid.')
+        vipadata_text = QLabel(text='Display the raw VIPA image of a single pixel in an active brimfile layer. If available, the spectral line is overlaid.')
         vipadata_text.setStyleSheet("color: #626972;")
         vipadata_text.setAlignment(Qt.AlignCenter)
         vipadata_text.setWordWrap(True)
