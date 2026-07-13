@@ -15,6 +15,7 @@ except ImportError:
     spectra_tools_module = None
 
 
+@pytest.mark.skipif(not SPECTRA_TOOLS_AVAILABLE, reason="Spectra tools module not available")
 def test_spectra_tools_warns_when_matplotlib_missing(monkeypatch):
     """Test that the widget raises ImportError before Container init."""
     monkeypatch.setattr(
