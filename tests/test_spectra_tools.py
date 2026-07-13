@@ -1,5 +1,5 @@
 """Tests for the spectra viewer module."""
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import patch, MagicMock
 import pytest
 import numpy as np
 
@@ -75,7 +75,7 @@ class TestSpectraTools:
     def test_tabs_and_spectral_image_controls(self, qtbot, make_napari_viewer):
         """Verify QTabWidget exists and spectral image controls are present."""
         viewer = make_napari_viewer()
-        widget = SpectraTools(viewer)
+        widget = spectra_tools_module.SpectraTools(viewer)
         qtbot.addWidget(widget.native)
 
         # find QTabWidget in native children
@@ -101,7 +101,7 @@ class TestSpectraTools:
     def test_update_labels_combobox_and_create_labels(self, qtbot, make_napari_viewer):
         """Test labels combobox updates with matching labels layers and create_labels_layer."""
         viewer = make_napari_viewer()
-        widget = SpectraTools(viewer)
+        widget = spectra_tools_module.SpectraTools(viewer)
         qtbot.addWidget(widget.native)
 
         # add a brimfile-like image layer and set as active selection
@@ -139,7 +139,7 @@ class TestSpectraTools:
     def test_create_labels_layer_requires_brimfile_layer(self, qtbot, make_napari_viewer):
         """_create_labels_layer should show info and not create when active is not brimfile."""
         viewer = make_napari_viewer()
-        widget = SpectraTools(viewer)
+        widget = spectra_tools_module.SpectraTools(viewer)
         qtbot.addWidget(widget.native)
 
         img = viewer.add_image(np.zeros((5, 5, 2)), name='non_brim')
@@ -157,7 +157,7 @@ class TestSpectraTools:
     def test_create_spectral_image_adds_image_layer(self, qtbot, make_napari_viewer):
         """_on_create_spectral_image should add an image layer for a valid brimfile layer."""
         viewer = make_napari_viewer()
-        widget = SpectraTools(viewer)
+        widget = spectra_tools_module.SpectraTools(viewer)
         qtbot.addWidget(widget.native)
 
         # Create an active brimfile-like layer
@@ -203,7 +203,7 @@ class TestSpectraTools:
     def test_reset_autoscale(self, qtbot, make_napari_viewer):
         """Test the _reset_autoscale method."""
         viewer = make_napari_viewer()
-        widget = SpectraTools(viewer)
+        widget = spectra_tools_module.SpectraTools(viewer)
         
         # Add widget to qtbot for proper cleanup (napari guideline)
         qtbot.addWidget(widget.native)
@@ -223,7 +223,7 @@ class TestSpectraTools:
     def test_load_spectrum_checks_layer_visibility(self, qtbot, make_napari_viewer):
         """Test that _load_spectrum returns early if layer is not visible."""
         viewer = make_napari_viewer()
-        widget = SpectraTools(viewer)
+        widget = spectra_tools_module.SpectraTools(viewer)
         
         # Add widget to qtbot for proper cleanup (napari guideline)
         qtbot.addWidget(widget.native)
@@ -247,7 +247,7 @@ class TestSpectraTools:
     def test_load_spectrum_checks_coordinates_within_bounds(self, qtbot, make_napari_viewer):
         """Test that _load_spectrum returns early for out-of-bounds coordinates."""
         viewer = make_napari_viewer()
-        widget = SpectraTools(viewer)
+        widget = spectra_tools_module.SpectraTools(viewer)
         
         # Add widget to qtbot for proper cleanup (napari guideline)
         qtbot.addWidget(widget.native)
@@ -271,7 +271,7 @@ class TestSpectraTools:
     def test_load_spectrum_plots_spectrum(self, qtbot, make_napari_viewer):
         """Test that _load_spectrum plots the spectrum correctly."""
         viewer = make_napari_viewer()
-        widget = SpectraTools(viewer)
+        widget = spectra_tools_module.SpectraTools(viewer)
         
         # Add widget to qtbot for proper cleanup (napari guideline)
         qtbot.addWidget(widget.native)
@@ -326,7 +326,7 @@ class TestSpectraTools:
     def test_load_vipa_rawdata_plots_image_and_overlay(self, qtbot, make_napari_viewer):
         """Test that _load_VIPA_rawdata draws the raw image and spectral line overlay."""
         viewer = make_napari_viewer()
-        widget = SpectraTools(viewer)
+        widget = spectra_tools_module.SpectraTools(viewer)
 
         qtbot.addWidget(widget.native)
 
