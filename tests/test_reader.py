@@ -325,11 +325,21 @@ class TestCreateBrimWidgetCallbacks:
         widget = create_brim_widget(mock_file)
         qtbot.addWidget(widget.native)
 
-        with pytest.raises(EmitLoopError) as excinfo:
-            widget.data_groups.changed.emit(None)
+        with qtbot.captureExceptions() as exceptions:
+            try:
+                widget.data_groups.changed.emit(None)
+            except EmitLoopError as err:
+                exceptions.append(err)
 
-        assert isinstance(excinfo.value.__cause__, ValueError)
-        assert "not a valid PeakType" in str(excinfo.value.__cause__)
+        assert exceptions, "Expected callback exception, got none"
+        captured = exceptions[0]
+        if isinstance(captured, tuple) and len(captured) >= 2:
+            err = captured[1]
+        else:
+            err = getattr(captured, "value", captured)
+        root = getattr(err, "__cause__", err)
+        assert isinstance(root, ValueError)
+        assert "not a valid PeakType" in str(root)
 
     @pytest.mark.qt
     @patch('brillouin_imaging._reader.napari.current_viewer')
