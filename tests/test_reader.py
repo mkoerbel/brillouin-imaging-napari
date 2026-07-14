@@ -359,6 +359,50 @@ class TestCreateBrimWidgetCallbacks:
 
     @pytest.mark.qt
     @patch('brillouin_imaging._reader.napari.current_viewer')
+    def test_add_image_button_adds_layer_for_antistokes_peak_type(
+        self, mock_current_viewer, qtbot
+    ):
+        """Selecting AntiStokes and clicking 'Add image' uses that peak type."""
+        mock_file, mock_data, mock_ar = _make_mock_brim_file()
+        mock_current_viewer.return_value = MagicMock()
+
+        widget = create_brim_widget(mock_file)
+        qtbot.addWidget(widget.native)
+        widget.data_groups.changed.emit(None)
+
+        peak_types_combo = widget[4]
+        peak_types_combo.value = 'AntiStokes'
+
+        add_image_btn = widget[5]
+        add_image_btn.clicked.emit()
+
+        args, kwargs = mock_ar.get_image.call_args
+        assert args[1] == brim.Data.AnalysisResults.PeakType.AntiStokes
+
+    @pytest.mark.qt
+    @patch('brillouin_imaging._reader.napari.current_viewer')
+    def test_add_image_button_adds_layer_for_stokes_peak_type(
+        self, mock_current_viewer, qtbot
+    ):
+        """Selecting Stokes and clicking 'Add image' uses that peak type."""
+        mock_file, mock_data, mock_ar = _make_mock_brim_file()
+        mock_current_viewer.return_value = MagicMock()
+
+        widget = create_brim_widget(mock_file)
+        qtbot.addWidget(widget.native)
+        widget.data_groups.changed.emit(None)
+
+        peak_types_combo = widget[4]
+        peak_types_combo.value = 'Stokes'
+
+        add_image_btn = widget[5]
+        add_image_btn.clicked.emit()
+
+        args, kwargs = mock_ar.get_image.call_args
+        assert args[1] == brim.Data.AnalysisResults.PeakType.Stokes
+
+    @pytest.mark.qt
+    @patch('brillouin_imaging._reader.napari.current_viewer')
     def test_add_image_button_recovers_on_missing_analysis_results(
         self, mock_current_viewer, qtbot
     ):
