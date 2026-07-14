@@ -551,6 +551,7 @@ class TestSpectraTools:
         assert np.array_equal(line.get_xdata(), np.array([0, 3]))
         assert np.array_equal(line.get_ydata(), np.array([1, 2]))
 
+    @pytest.mark.qt
     def test_load_vipa_rawdata_ignored_for_wrong_subtype(self, qtbot, make_napari_viewer):
         """_load_VIPA_rawdata should be a no-op for non-VIPA files."""
         viewer = make_napari_viewer()
@@ -749,7 +750,7 @@ class TestSpectraTools:
                 'Sample': item_with_units,
                 'IRF': MagicMock(),  # should be skipped
                 'IRF_frequency': MagicMock(),  # should be skipped
-                'Note': 'plain string value',
+                'Note': item_without_units,
             },
             'invalid_section': 'not a dict',
         }
@@ -879,7 +880,7 @@ class TestPlotLabelsSpectrum:
         mock_file.get_data.return_value = mock_data_group
 
         labels_data = np.array([[[1, 1], [2, 0]]], dtype=np.uint8)
-        labels_layer = viewer.add_labels(labels_data, name='regions')
+        viewer.add_labels(labels_data, name='regions')
 
         brim_layer = viewer.add_image(np.zeros((1, 2, 2)), name='brim_img')
         brim_layer.metadata = {
