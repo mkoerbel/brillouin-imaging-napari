@@ -439,13 +439,27 @@ class TestCreateBrimWidgetCallbacks:
 
         add_image_btn = widget[5]
         from psygnal._exceptions import EmitLoopError
-        with pytest.raises(EmitLoopError) as excinfo:
-            add_image_btn.clicked.emit()
+        with qtbot.captureExceptions() as exceptions:
+            try:
+                add_image_btn.clicked.emit()
+            except EmitLoopError as err:
+                exceptions.append(err)
 
         # The first failure is swallowed by the bare except in
         # on_add_image_btn_pressed; the retry inside on_data_change's
-        # cascade is not guarded and surfaces here.
-        assert isinstance(excinfo.value.__cause__, Exception)
+        # cascade is not guarded and surfaces here. Whether it crosses a
+        # live Qt slot boundary depends on whether the recovery path
+        # actually changes a combo box's selected value, so this is
+        # captured via qtbot.captureExceptions rather than a bare
+        # pytest.raises (see "Known hazard" in the test-writer agent doc).
+        assert exceptions, "Expected callback exception, got none"
+        captured = exceptions[0]
+        if isinstance(captured, tuple) and len(captured) >= 2:
+            err = captured[1]
+        else:
+            err = getattr(captured, "value", captured)
+        root = getattr(err, "__cause__", err)
+        assert isinstance(root, Exception)
 
     @pytest.mark.qt
     @patch('brillouin_imaging._reader.napari.current_viewer')

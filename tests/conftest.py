@@ -70,3 +70,27 @@ def _stub_vispy_layers_for_qt_tests(request, monkeypatch):
 
     monkeypatch.setattr("napari._qt.qt_viewer.QtViewer._add_layer", _add_layer)
     monkeypatch.setattr("napari._vispy.canvas.VispyCanvas._remove_layer", _remove_layer)
+
+
+@pytest.fixture(autouse=True)
+def _close_matplotlib_figures():
+    """Close all matplotlib figures after every test.
+
+    SpectraTools.__init__ creates several real figures via plt.subplots()
+    (each wrapped in a Qt FigureCanvas), which registers them with
+    pyplot's global figure manager. That manager keeps them alive
+    regardless of whether the widget itself is garbage-collected, so
+    without this, a full test run accumulates one leaked Figure (and its
+    underlying Qt canvas) per SpectraTools construction — pytest already
+    surfaces this as "More than 20 figures have been opened" partway
+    through tests/test_spectra_tools.py. Left unchecked over a larger
+    suite or a long-running session, this also keeps extra Qt widgets
+    alive for the whole run, on top of whatever the matplotlib memory
+    itself costs.
+    """
+    yield
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        return
+    plt.close("all")

@@ -44,10 +44,20 @@ code under `src/brillouin_imaging/` except as a last resort described under
   `pytest`, `pytest-cov`, `pytest-qt`, `napari`, `pyqt5`. Add new test-only
   dependencies (e.g. `hypothesis`) here if you introduce them.
 - `tox.ini` / `.github/workflows/test.yml` — CI runs pytest across Python
-  3.11–3.13 on Linux/macOS/Windows.
-  `conftest.py` sets `QT_QPA_PLATFORM=offscreen` except on macOS (which needs a
-  real display for OpenGL) and registers a custom `qt` marker for
-  Qt-dependent tests.
+  3.11–3.13 on Linux/macOS/Windows (`ubuntu-latest`, `windows-latest`,
+  `macos-latest`).
+  `conftest.py` sets `QT_QPA_PLATFORM=offscreen` except on macOS (where the
+  offscreen platform has no usable GL context and segfaults) and registers
+  a custom `qt` marker for Qt-dependent tests. It also provides
+  `_stub_vispy_layers_for_qt_tests`, an **autouse** fixture (applies to
+  every `@pytest.mark.qt` test automatically) that monkeypatches
+  `napari._qt.qt_viewer.QtViewer._add_layer` and
+  `napari._vispy.canvas.VispyCanvas._remove_layer` with a lightweight
+  stand-in, so adding/removing a real napari layer on a real viewer
+  (`viewer.add_image(...)`, `viewer.add_labels(...)`, etc.) doesn't need a
+  working OpenGL context. Rely on this existing fixture rather than adding
+  your own vispy/GL mocking per test — see "Known hazard: other
+  cross-platform Qt/vispy pitfalls" below for why it exists and its limits.
 
 ## Testing philosophy (from napari's guidelines)
 
@@ -87,8 +97,6 @@ https://napari.org/stable/plugins/testing_and_publishing/test.html:
   but a passing suite with weak assertions is not the goal — assert on
   concrete state changes, call arguments, and return values, not just "no
   exception was raised."
-- For headless Linux Qt tests, do not rely on real napari/vispy OpenGL rendering.
-  If a test needs make_napari_viewer and layer insertion, stub or mock vispy layer creation/removal (or use layer/viewer doubles) unless the test is explicitly about rendering behavior.
 
 ## Known repo-specific quirks — verify against current source, don't assume
 
@@ -142,7 +150,8 @@ Aborted` (SIGABRT), pytest exiting with code 134, killing the entire test
 "Fixed test crashing on Mac") purely as a test change — `_reader.py` was
 not touched.
 
-**Confirmed root cause**: in PyQt5 and PyQt6, an exception that escapes a slot/virtual method invoked from Qt's C++ layer calls `abort()` by default, crashing the
+**Confirmed root cause**: in PyQt5 and PyQt6, an exception that escapes a slot/virtual
+method invoked from Qt's C++ layer calls `abort()` by default, crashing the
 interpreter, rather than propagating as a normal Python exception —
 see https://pytest-qt.readthedocs.io/en/latest/virtual_methods.html.
 `pytest-qt` normally protects every `@pytest.mark.qt` test from this
@@ -189,6 +198,89 @@ Rules for any future test touching this chain, or any other place a magicgui
   (via a real widget, `qtbot.mouseClick`, `.value =`, etc.) and expects an
   exception raised inside it to surface needs one of the two mechanisms
   above.
+- **A live example of this exact risk already exists in the suite**:
+  `test_add_image_button_recovers_on_missing_analysis_results` in
+  `tests/test_reader.py` drives the same kind of cascade (via
+  `add_image_btn.clicked.emit()` → the recovery path's `on_data_change()`
+  → a `.value =` assignment that *can* cross into a live Qt slot) wrapped
+  in a bare `pytest.raises(EmitLoopError)` — no `qtbot.captureExceptions`,
+  despite the test's own docstring claiming it uses one. It happens to be
+  safe today only because the mocked recovery scenario re-selects the same
+  combo value it already had, so no native signal actually fires this
+  time — change the mock/fixture data even slightly and this could crash
+  the interpreter exactly like the fixed test did. Fix it the same way (or
+  flag it) rather than assuming "it currently passes" means it's safe.
+
+## Known hazard: other cross-platform Qt/vispy pitfalls to watch for
+
+Beyond the two crashes already fixed (macOS abort from `pytest.raises` vs a
+live Qt slot; Ubuntu/headless crash from vispy needing a working GL context
+to add/remove a real layer — fixed by `_stub_vispy_layers_for_qt_tests` in
+`conftest.py`), be aware of these related, evidence-backed hazards when
+writing or debugging tests on any OS:
+
+- **The vispy-layer stub only covers what it patches.** It replaces
+  `QtViewer._add_layer`/`VispyCanvas._remove_layer` for any test carrying
+  `@pytest.mark.qt`. If you add a test that adds/removes napari layers a
+  *different* way (constructing a `Viewer`/`QtViewer` without
+  `make_napari_viewer`, calling lower-level vispy/canvas APIs directly, or
+  testing 3D/`ndisplay=3` mode, screenshots, or thumbnails — all of which
+  also touch the GL context), the same class of crash can resurface
+  because it isn't covered by the existing stub. This isn't just a
+  Linux/macOS thing either: napari itself has had a *Windows*-specific bug
+  in this exact area (`_clean_and_update_scenegraph` calling
+  `glGetParameter` during layer-removal cleanup —
+  https://github.com/napari/napari/pull/8552) and macOS-specific segfaults
+  tied to a specific PyQt6 patch release when opening images or switching
+  to 3D, which napari worked around by excluding that PyQt6 version
+  outright (https://github.com/napari/napari/pull/6748) rather than fixing
+  it in their own code. If a new test needs a real GL-backed code path,
+  extend the existing stub or mock at the same boundary rather than
+  assuming today's coverage is complete.
+- **Don't casually switch `QT_QPA_PLATFORM` away from `offscreen` on
+  Linux.** The CI workflow's `apt-get install` step for Linux
+  (`libegl1 libgl1 libxkbcommon-x11-0 libdbus-1-3`) is sufficient for the
+  `offscreen` platform, but is missing `libxcb-cursor0` — required since
+  Qt 6.5 to load the `xcb` platform plugin at all
+  ("Could not load the Qt platform plugin 'xcb'..."). If a future test
+  needs more realistic X11 behavior (focus, clipboard, real cursor
+  queries) and switches to `xcb` + Xvfb, Ubuntu CI will fail to even start
+  Qt unless `libxcb-cursor0` (or `libxcb-cursor-dev`) is added to that
+  install step.
+- **Offscreen tests can be measurably slower than a real display**, per
+  napari's own testing-docs discussion
+  (https://github.com/napari/docs/pull/215). Keep `qtbot.waitSignal`/
+  `qtbot.waitUntil` timeouts generous and platform-agnostic rather than
+  tuned to the fastest machine you happened to test on, so CI on the
+  (typically slower, headless) Linux/Windows runners doesn't flake where
+  local runs don't.
+- **Windows temp-file cleanup can fail if a handle is still open.**
+  pytest's `tmp_path` cleanup can raise `PermissionError: [WinError 5/32]`
+  on Windows if something (a Qt widget, a backing-store file handle) still
+  holds the file open when the test ends — a well-known pytest-on-Windows
+  issue (https://github.com/pytest-dev/pytest/issues/7491,
+  https://github.com/pytest-dev/pytest/issues/6754). Low risk today since
+  this suite mocks `brim.File`/network I/O rather than writing real
+  `.brim` files, but keep it in mind if a future test starts writing and
+  reopening real files under `tmp_path` while a widget or mock is still
+  alive — close/dispose explicitly rather than relying on garbage
+  collection to release the handle before teardown.
+- **`SpectraTools` leaks real matplotlib figures — confirmed by actually
+  running the suite, not just research.** `SpectraTools.__init__` calls
+  `plt.subplots()` three times, which registers each figure (and its Qt
+  `FigureCanvas`) with pyplot's global figure manager; nothing ever closed
+  them. A full `pytest tests/` run surfaced `UserWarning: More than 20
+  figures have been opened` partway through `test_spectra_tools.py`, and
+  the run measurably sped up once fixed (accumulated Qt canvases add up
+  over a session, not just matplotlib memory). Fixed with an autouse
+  `_close_matplotlib_figures` fixture in `conftest.py` (`plt.close("all")`
+  after every test, guarded for `ImportError` since matplotlib is
+  optional here). If you add a test that constructs `SpectraTools` (or
+  any widget that calls `plt.subplots()`/`plt.figure()`), you don't need
+  to close figures yourself — this fixture already covers it — but if you
+  add a *new* matplotlib-figure-creating code path outside `SpectraTools`,
+  don't assume it's covered without checking this fixture still catches
+  it.
 
 ## Workflow
 
