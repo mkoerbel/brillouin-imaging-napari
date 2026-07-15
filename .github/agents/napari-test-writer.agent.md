@@ -87,6 +87,8 @@ https://napari.org/stable/plugins/testing_and_publishing/test.html:
   but a passing suite with weak assertions is not the goal — assert on
   concrete state changes, call arguments, and return values, not just "no
   exception was raised."
+- For headless Linux Qt tests, do not rely on real napari/vispy OpenGL rendering.
+  If a test needs make_napari_viewer and layer insertion, stub or mock vispy layer creation/removal (or use layer/viewer doubles) unless the test is explicitly about rendering behavior.
 
 ## Known repo-specific quirks — verify against current source, don't assume
 
@@ -111,6 +113,82 @@ https://napari.org/stable/plugins/testing_and_publishing/test.html:
   rather than constructing real `.brim.zip`/`.brim.zarr` fixtures — real
   sample datasets are large, externally hosted scientific data and must
   never be checked into the repo or downloaded during tests.
+- `create_brim_widget`'s callback chain (`on_data_change` →
+  `on_analysis_results_change` → `on_quantity_change`) both sets `.choices`/
+  `.value` on the *next* combo box down the chain **and** explicitly calls
+  the next handler directly (the source comments call this out on purpose,
+  e.g. "call the analysis_results handler directly to update downstream
+  controls") — that's deliberate defensive redundancy, not a bug, so don't
+  report it as one. What *does* matter for testing: assigning `.value` on a
+  combo box goes through magicgui's Qt backend and can synchronously fire
+  that combo box's real, native Qt `changed` signal into the next handler
+  — so part of this chain runs through live Qt/PyQt6 signal dispatch, not
+  just plain Python calls. See "Known hazard" below before writing any test
+  that expects an exception to propagate up through this chain.
+
+## Known hazard: an exception raised inside a live Qt slot aborts the whole interpreter unless something catches it
+
+A prior generated test, `test_quantity_change_raises_for_invalid_peak_type`,
+made `list_existing_peak_types()` return a single unrecognized value (e.g.
+`['not_a_peak_type']`) so `on_quantity_change`'s final `else: raise
+ValueError(...)` branch would fire, then drove the whole
+`on_data_change → on_analysis_results_change → on_quantity_change` chain
+from the top with `widget.data_groups.changed.emit(None)` on a real,
+`qtbot`-managed widget, wrapped in `pytest.raises(psygnal.EmitLoopError)`.
+
+On macOS CI this crashed the whole pytest process — `Fatal Python error:
+Aborted` (SIGABRT), pytest exiting with code 134, killing the entire test
+*session*, not just that one test. It was fixed (commit `d4f9eb8`,
+"Fixed test crashing on Mac") purely as a test change — `_reader.py` was
+not touched.
+
+**Confirmed root cause**: in PyQt5 and PyQt6, an exception that escapes a slot/virtual method invoked from Qt's C++ layer calls `abort()` by default, crashing the
+interpreter, rather than propagating as a normal Python exception —
+see https://pytest-qt.readthedocs.io/en/latest/virtual_methods.html.
+`pytest-qt` normally protects every `@pytest.mark.qt` test from this
+automatically, by installing a global exception hook that turns such a
+crash into a clean, readable test failure instead. **This test opted out
+of that protection** with `@pytest.mark.qt_no_exception_capture` (present
+on the test, presumably added so `pytest.raises(EmitLoopError)` would see
+the exception directly) — which left nothing in place to intercept the
+`ValueError` once it happened to be raised from inside a slot invoked via
+a real, native Qt signal (part of this chain crosses into magicgui's Qt
+backend, `_mgui_set_choices`/`_emit_data`, because assigning `.value` on a
+combo box can synchronously fire that widget's real Qt `changed` signal —
+see the quirk above). `pytest.raises(...)` wrapped around the top-level
+`.emit(...)` call never got a chance to run — PyQt6 aborted the process
+first, at the point the exception tried to escape the live slot.
+
+**The actual fix**: keep driving the cascade the same way, but replace
+`pytest.raises(EmitLoopError)` with `qtbot.captureExceptions()` around the
+`.emit(...)` call (with a `try/except EmitLoopError` inside, appending to
+the captured list, as a fallback for the case where it *does* propagate
+directly). This restores, locally and manually, the same protection that
+`qt_no_exception_capture` had switched off globally, then asserts on the
+captured exception's `__cause__` afterward.
+
+Rules for any future test touching this chain, or any other place a magicgui
+`.changed` handler triggers a live Qt signal update:
+
+- **Never pair `@pytest.mark.qt_no_exception_capture` with
+  `pytest.raises(...)` around code that might raise inside a live Qt
+  slot.** Either drop the marker and let pytest-qt's automatic hook do its
+  job (it turns the abort into a normal failed assertion), or, if you need
+  the marker for another reason, wrap the triggering call in
+  `qtbot.captureExceptions()` yourself and assert on the captured list
+  afterward — mirror the pattern in the fix above.
+- **A fatal abort (`Fatal Python error: Aborted`, exit 134) in your own
+  test run might mean exactly this** — an exception escaped a live Qt slot with
+  no hook in place to catch it. The fix is `qtbot.captureExceptions()` (or
+  removing `qt_no_exception_capture`), not a broader `except`, not a
+  looser assertion, and not avoiding the widget cascade altogether.
+  Driving the real cascade is fine;
+  catching its exceptions the pytest-qt way is what matters.
+- This is a general PyQt5/6 + pytest-qt hazard, not specific to this
+  repo's callback chain or to macOS — any test that triggers a Qt slot
+  (via a real widget, `qtbot.mouseClick`, `.value =`, etc.) and expects an
+  exception raised inside it to surface needs one of the two mechanisms
+  above.
 
 ## Workflow
 
@@ -134,7 +212,13 @@ https://napari.org/stable/plugins/testing_and_publishing/test.html:
 4. **Run the suite** after every meaningful change:
    `QT_QPA_PLATFORM=offscreen pytest tests/ -v` (conftest.py already sets this
    except on macOS, so plain `pytest tests/ -v` is fine in CI-like
-   environments). Iterate until green.
+   environments). Iterate until green. If a run ends with `Fatal Python
+   error: Aborted`/an exit code like 134 instead of a normal pytest
+   pass/fail summary, that might be an exception escaping a live Qt slot with no
+   hook to catch it (see "Known hazard" above) — check for
+   `@pytest.mark.qt_no_exception_capture` paired with a bare
+   `pytest.raises(...)`, and fix it with `qtbot.captureExceptions()`
+   rather than changing what exception type you assert on.
 5. **Don't paper over failures.** If a test fails because it's stale, fix the test to match current, correct
    behavior. If a test fails because the source has a genuine bug, report it
    clearly instead of loosening the assertion to match the bug.
