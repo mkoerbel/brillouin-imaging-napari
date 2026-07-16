@@ -43,29 +43,41 @@ code under `src/brillouin_imaging/` except as a last resort described under
 - `pyproject.toml` `[project.optional-dependencies].testing` — `tox`,
   `pytest`, `pytest-cov`, `pytest-qt`, `napari`, `pyqt5`. Add new test-only
   dependencies (e.g. `hypothesis`) here if you introduce them.
-- `tox.ini` / `.github/workflows/test.yml` — CI runs pytest across Python
-  3.11–3.13 on Linux/macOS/Windows (`ubuntu-latest`, `windows-latest`,
-  `macos-latest`). `test.yml` sets up a real, working display and OpenGL
+- `tox.ini` / `.github/workflows/test.yml` — CI actually runs the suite
+  *through* `tox`. `test.yml` provisions Python via
+  `astral-sh/setup-uv`, sets up a real, working display and OpenGL
   context on every runner via a single `pyvista/setup-headless-display-action`
-  step (`qt: true`, `wm: herbstluftwm`), run before dependencies are
-  installed:
-  - **Linux**: installs Qt/X11 packages (including `libxcb-cursor0`,
-    required since Qt 6.5 to load the `xcb` plugin at all) and starts a
-    real Xvfb X server plus a window manager — Qt runs against this real
-    (virtual) display, not its `offscreen` platform plugin.
-  - **Windows**: installs Mesa3D, a software OpenGL implementation, since
-    the stock `windows-latest` GPU driver can't create a real OpenGL
+  step (`qt: true`, `wm: herbstluftwm`), then runs
+  `uvx --with tox-gh-actions tox` with `PLATFORM: ${{ matrix.os }}` set:
+  - **Linux**: the headless-display action installs Qt/X11 packages
+    (including `libxcb-cursor0`, required since Qt 6.5 to load the `xcb`
+    plugin at all) and starts a real Xvfb X server plus a window manager —
+    Qt runs against this real (virtual) display, not its `offscreen`
+    platform plugin.
+  - **Windows**: it installs Mesa3D, a software OpenGL implementation,
+    since the stock `windows-latest` GPU driver can't create a real OpenGL
     context at all — this is what napari/vispy need internally (e.g.
     `glGetParameter(GL_MAX_TEXTURE_SIZE)` when building the canvas).
   - **macOS**: no extra setup — the runner's own display/GPU already
     provides a working GL context.
 
-  Because a real GL context now exists everywhere, `conftest.py` no longer
-  needs to force or special-case `QT_QPA_PLATFORM` per OS, and no longer
-  needs to monkeypatch vispy layer add/remove — `make_napari_viewer()` and
-  real `viewer.add_image(...)`/`viewer.add_labels(...)` calls work
-  unmodified on every platform. `conftest.py` still registers a custom
-  `qt` marker for Qt-dependent tests.
+  Because a real GL context now exists everywhere, `conftest.py` doesn't
+  force or special-case `QT_QPA_PLATFORM` per OS, and doesn't monkeypatch
+  vispy layer add/remove — `make_napari_viewer()` and real
+  `viewer.add_image(...)`/`viewer.add_labels(...)` calls work unmodified
+  on every platform. `conftest.py` still registers a custom `qt` marker
+  for Qt-dependent tests.
+
+  `tox.ini`'s `[gh-actions]`/`[gh-actions:env]` tables (read by the
+  `tox-gh-actions` plugin, supplied ad hoc via `uvx --with
+  tox-gh-actions` rather than installed as a project dependency) map the
+  job's Python version and `PLATFORM` env var to exactly one
+  factor-conditioned environment (e.g. `py312-linux`), which installs this
+  package with the `testing` extra into an isolated virtualenv and runs
+  `pytest -v --color=yes --cov=brillouin_imaging --cov-report=xml` — so a
+  new test dependency only reaches CI if it's added to the `testing`
+  extra (see the bullet above), even if it's already installed in your own
+  dev environment.
 
 ## Testing philosophy (from napari's guidelines)
 
@@ -290,14 +302,19 @@ evidence-backed hazards when writing or debugging tests on any OS:
 3. **Write isolated tests first**, reaching for `make_napari_viewer` +
    `qtbot` only when GUI wiring itself (widget tree shape, visibility, signal
    connections) is what's actually under test.
-4. **Run the suite** after every meaningful change: plain `pytest tests/
-   -v`. No `QT_QPA_PLATFORM` env var is needed locally or in CI — CI gets a
-   real display/GL context from `test.yml`'s
-   `pyvista/setup-headless-display-action` step, and your own machine
-   already has a real display. Iterate until green. If a run ends with
-   `Fatal Python error: Aborted`/an exit code like 134 instead of a normal
-   pytest pass/fail summary, that might be an exception escaping a live Qt
-   slot with no hook to catch it (see "Known hazard" above) — check for
+4. **Run the suite** after every meaningful change. For quick iteration in
+   your existing environment, plain `pytest tests/ -v` works — no
+   `QT_QPA_PLATFORM` env var is needed locally or in CI, since your own
+   machine already has a real display and CI gets one from `test.yml`'s
+   `pyvista/setup-headless-display-action` step. To reproduce exactly what
+   CI runs (an isolated env, the pinned `testing` extra, coverage), run
+   `tox` instead — or `tox -e py312-linux` (swap in whichever factor
+   matches your OS/Python) to check just one environment rather than
+   building all of them. This matters most when something fails only in
+   CI. Iterate until green. If a run ends with `Fatal Python error:
+   Aborted`/an exit code like 134 instead of a normal pytest pass/fail
+   summary, that might be an exception escaping a live Qt slot with no
+   hook to catch it (see "Known hazard" above) — check for
    `@pytest.mark.qt_no_exception_capture` paired with a bare
    `pytest.raises(...)`, and fix it with `qtbot.captureExceptions()`
    rather than changing what exception type you assert on.

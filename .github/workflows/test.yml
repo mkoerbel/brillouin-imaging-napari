@@ -20,10 +20,11 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5
+    - name: Setup python
+      uses: astral-sh/setup-uv@v7
       with:
         python-version: ${{ matrix.python-version }}
+        activate-environment: "true"
 
     - name: Setup headless display
       uses: pyvista/setup-headless-display-action@v4
@@ -31,12 +32,7 @@ jobs:
         qt: true
         wm: herbstluftwm
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install "napari[all]"
-        pip install -e ".[testing]"
-
-    - name: Run tests with pytest
-      run: |
-        pytest tests/ -v --import-mode=importlib
+    - name: Test with tox
+      run: uvx --with tox-gh-actions tox
+      env:
+        PLATFORM: ${{ matrix.os }}
