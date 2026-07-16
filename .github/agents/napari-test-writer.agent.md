@@ -45,19 +45,27 @@ code under `src/brillouin_imaging/` except as a last resort described under
   dependencies (e.g. `hypothesis`) here if you introduce them.
 - `tox.ini` / `.github/workflows/test.yml` — CI runs pytest across Python
   3.11–3.13 on Linux/macOS/Windows (`ubuntu-latest`, `windows-latest`,
-  `macos-latest`).
-  `conftest.py` sets `QT_QPA_PLATFORM=offscreen` except on macOS (where the
-  offscreen platform has no usable GL context and segfaults) and registers
-  a custom `qt` marker for Qt-dependent tests. It also provides
-  `_stub_vispy_layers_for_qt_tests`, an **autouse** fixture (applies to
-  every `@pytest.mark.qt` test automatically) that monkeypatches
-  `napari._qt.qt_viewer.QtViewer._add_layer` and
-  `napari._vispy.canvas.VispyCanvas._remove_layer` with a lightweight
-  stand-in, so adding/removing a real napari layer on a real viewer
-  (`viewer.add_image(...)`, `viewer.add_labels(...)`, etc.) doesn't need a
-  working OpenGL context. Rely on this existing fixture rather than adding
-  your own vispy/GL mocking per test — see "Known hazard: other
-  cross-platform Qt/vispy pitfalls" below for why it exists and its limits.
+  `macos-latest`). `test.yml` sets up a real, working display and OpenGL
+  context on every runner via a single `pyvista/setup-headless-display-action`
+  step (`qt: true`, `wm: herbstluftwm`), run before dependencies are
+  installed:
+  - **Linux**: installs Qt/X11 packages (including `libxcb-cursor0`,
+    required since Qt 6.5 to load the `xcb` plugin at all) and starts a
+    real Xvfb X server plus a window manager — Qt runs against this real
+    (virtual) display, not its `offscreen` platform plugin.
+  - **Windows**: installs Mesa3D, a software OpenGL implementation, since
+    the stock `windows-latest` GPU driver can't create a real OpenGL
+    context at all — this is what napari/vispy need internally (e.g.
+    `glGetParameter(GL_MAX_TEXTURE_SIZE)` when building the canvas).
+  - **macOS**: no extra setup — the runner's own display/GPU already
+    provides a working GL context.
+
+  Because a real GL context now exists everywhere, `conftest.py` no longer
+  needs to force or special-case `QT_QPA_PLATFORM` per OS, and no longer
+  needs to monkeypatch vispy layer add/remove — `make_napari_viewer()` and
+  real `viewer.add_image(...)`/`viewer.add_labels(...)` calls work
+  unmodified on every platform. `conftest.py` still registers a custom
+  `qt` marker for Qt-dependent tests.
 
 ## Testing philosophy (from napari's guidelines)
 
@@ -211,49 +219,30 @@ Rules for any future test touching this chain, or any other place a magicgui
   the interpreter exactly like the fixed test did. Fix it the same way (or
   flag it) rather than assuming "it currently passes" means it's safe.
 
-## Known hazard: other cross-platform Qt/vispy pitfalls to watch for
+## Known hazard: cross-platform Qt/vispy pitfalls to watch for
 
-Beyond the two crashes already fixed (macOS abort from `pytest.raises` vs a
-live Qt slot; Ubuntu/headless crash from vispy needing a working GL context
-to add/remove a real layer — fixed by `_stub_vispy_layers_for_qt_tests` in
-`conftest.py`), be aware of these related, evidence-backed hazards when
-writing or debugging tests on any OS:
+One crash class is already fixed (macOS abort from `pytest.raises` vs a
+live Qt slot — see the dedicated section below). Be aware of these related,
+evidence-backed hazards when writing or debugging tests on any OS:
 
-- **The vispy-layer stub only covers what it patches.** It replaces
-  `QtViewer._add_layer`/`VispyCanvas._remove_layer` for any test carrying
-  `@pytest.mark.qt`. If you add a test that adds/removes napari layers a
-  *different* way (constructing a `Viewer`/`QtViewer` without
-  `make_napari_viewer`, calling lower-level vispy/canvas APIs directly, or
-  testing 3D/`ndisplay=3` mode, screenshots, or thumbnails — all of which
-  also touch the GL context), the same class of crash can resurface
-  because it isn't covered by the existing stub. This isn't just a
-  Linux/macOS thing either: napari itself has had a *Windows*-specific bug
-  in this exact area (`_clean_and_update_scenegraph` calling
+- **A real GL context is used on every OS in CI, so real vispy/GL bugs can
+  surface directly** — there's no offscreen-mode or monkeypatch masking
+  them. Two known, evidence-backed examples from napari itself: a
+  *Windows*-specific bug in `_clean_and_update_scenegraph` calling
   `glGetParameter` during layer-removal cleanup —
-  https://github.com/napari/napari/pull/8552) and macOS-specific segfaults
-  tied to a specific PyQt6 patch release when opening images or switching
-  to 3D, which napari worked around by excluding that PyQt6 version
-  outright (https://github.com/napari/napari/pull/6748) rather than fixing
-  it in their own code. If a new test needs a real GL-backed code path,
-  extend the existing stub or mock at the same boundary rather than
-  assuming today's coverage is complete.
-- **Don't casually switch `QT_QPA_PLATFORM` away from `offscreen` on
-  Linux.** The CI workflow's `apt-get install` step for Linux
-  (`libegl1 libgl1 libxkbcommon-x11-0 libdbus-1-3`) is sufficient for the
-  `offscreen` platform, but is missing `libxcb-cursor0` — required since
-  Qt 6.5 to load the `xcb` platform plugin at all
-  ("Could not load the Qt platform plugin 'xcb'..."). If a future test
-  needs more realistic X11 behavior (focus, clipboard, real cursor
-  queries) and switches to `xcb` + Xvfb, Ubuntu CI will fail to even start
-  Qt unless `libxcb-cursor0` (or `libxcb-cursor-dev`) is added to that
-  install step.
-- **Offscreen tests can be measurably slower than a real display**, per
-  napari's own testing-docs discussion
-  (https://github.com/napari/docs/pull/215). Keep `qtbot.waitSignal`/
-  `qtbot.waitUntil` timeouts generous and platform-agnostic rather than
-  tuned to the fastest machine you happened to test on, so CI on the
-  (typically slower, headless) Linux/Windows runners doesn't flake where
-  local runs don't.
+  https://github.com/napari/napari/pull/8552 — and macOS-specific
+  segfaults tied to a specific PyQt6 patch release when opening images or
+  switching to 3D, which napari worked around by excluding that PyQt6
+  version outright (https://github.com/napari/napari/pull/6748) rather
+  than fixing it in their own code. If a test that adds/removes real
+  napari layers, switches to 3D/`ndisplay=3`, or takes
+  screenshots/thumbnails starts crashing or segfaulting on one OS only,
+  check whether it matches one of these known upstream issues (or a newer
+  one like them) before assuming it's a bug in this plugin.
+- **CI's virtual display can be slower than your local one.** Keep
+  `qtbot.waitSignal`/`qtbot.waitUntil` timeouts generous and
+  platform-agnostic rather than tuned to the fastest machine you happened
+  to test on, so CI doesn't flake where local runs don't.
 - **Windows temp-file cleanup can fail if a handle is still open.**
   pytest's `tmp_path` cleanup can raise `PermissionError: [WinError 5/32]`
   on Windows if something (a Qt widget, a backing-store file handle) still
@@ -301,13 +290,14 @@ writing or debugging tests on any OS:
 3. **Write isolated tests first**, reaching for `make_napari_viewer` +
    `qtbot` only when GUI wiring itself (widget tree shape, visibility, signal
    connections) is what's actually under test.
-4. **Run the suite** after every meaningful change:
-   `QT_QPA_PLATFORM=offscreen pytest tests/ -v` (conftest.py already sets this
-   except on macOS, so plain `pytest tests/ -v` is fine in CI-like
-   environments). Iterate until green. If a run ends with `Fatal Python
-   error: Aborted`/an exit code like 134 instead of a normal pytest
-   pass/fail summary, that might be an exception escaping a live Qt slot with no
-   hook to catch it (see "Known hazard" above) — check for
+4. **Run the suite** after every meaningful change: plain `pytest tests/
+   -v`. No `QT_QPA_PLATFORM` env var is needed locally or in CI — CI gets a
+   real display/GL context from `test.yml`'s
+   `pyvista/setup-headless-display-action` step, and your own machine
+   already has a real display. Iterate until green. If a run ends with
+   `Fatal Python error: Aborted`/an exit code like 134 instead of a normal
+   pytest pass/fail summary, that might be an exception escaping a live Qt
+   slot with no hook to catch it (see "Known hazard" above) — check for
    `@pytest.mark.qt_no_exception_capture` paired with a bare
    `pytest.raises(...)`, and fix it with `qtbot.captureExceptions()`
    rather than changing what exception type you assert on.
