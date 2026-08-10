@@ -31,8 +31,7 @@ Replace code below according to your needs.
 
 from cProfile import label
 from hmac import new
-from magicgui import magic_factory
-from magicgui.widgets import CheckBox, Container, create_widget
+from magicgui.widgets import Container
 import napari
 import napari.utils
 import napari.utils.notifications
@@ -43,6 +42,7 @@ import brimfile as brim
 from brimfile.subtypes import single_point_VIPA
 import numpy as np
 from scipy import interpolate
+import pyqtgraph as pg
 
 try:
     import matplotlib.pyplot as plt
@@ -92,11 +92,46 @@ class SpectraTools(Container):
         self.ax_regional_spectra.yaxis.label.set_color('white')
         self.ax_regional_spectra.xaxis.label.set_color('white')
 
-        # Plot VIPA raw image matplotlib figure
-        self.fig_vipa_rawdata, self.ax_vipa_rawdata = plt.subplots()
-        self.fig_vipa_rawdata.set_layout_engine('constrained')
-        self.fig_vipa_rawdata.patch.set_alpha(0)
-        self.ax_vipa_rawdata.set_axis_off()
+        # VIPA raw image – interactive pyqtgraph display
+        self._vipa_ghz_per_pixel = None  # set via set_vipa_ghz_per_pixel()
+        self._vipa_gw = pg.GraphicsLayoutWidget()
+        self._vipa_gw.setBackground(None)  # inherit Qt widget background
+        self._vipa_vb = self._vipa_gw.addViewBox()
+        self._vipa_vb.setAspectLocked(True)
+        self._vipa_vb.invertY(True)
+        self._vipa_img = pg.ImageItem()
+        self._vipa_vb.addItem(self._vipa_img)
+        # Spectral-line overlay drawn as a filled band in data space
+        self._vipa_line_fill = pg.PlotCurveItem(
+            pen=pg.mkPen(color = (210, 127, 117, 128), width=5),
+            brush=pg.mkBrush(210, 127, 117, 128),
+        )
+        self._vipa_vb.addItem(self._vipa_line_fill)
+        self._vipa_sb_line = pg.PlotDataItem(pen=pg.mkPen('white', width=3))
+        self._vipa_sb_text = pg.TextItem('', color='white', anchor=(0.5, 1.0))
+        self._vipa_vb.addItem(self._vipa_sb_line)
+        self._vipa_vb.addItem(self._vipa_sb_text)
+        self._vipa_hist = pg.HistogramLUTWidget()
+        self._vipa_hist.setImageItem(self._vipa_img)
+        self._vipa_hist.setBackground(None)
+        self._vipa_hist.setMaximumWidth(150)
+        self._vipa_hist.fillHistogram(fill=True, color=pg.mkColor('#3F4852'))
+        try:
+            self._vipa_hist.gradient.loadPreset('grey')
+            self._vipa_hist.gradient.allowAdd = False
+            self._vipa_hist.gradient.allowRemove = False
+        except Exception:
+            pass
+        try:
+            lut = self._vipa_hist.item
+            lut.region.setBrush(pg.mkBrush(255, 255, 255, 25))
+            lut.region.setHoverBrush(pg.mkBrush(255, 255, 255, 45))
+            for line in lut.region.lines:
+                line.setPen(pg.mkPen('w', width=1))
+            lut.vb.setBackgroundColor(None)
+            lut.region.lines[0].setBounds([0, None])  # lower slider can't go below 0
+        except Exception:
+            pass
 
         # connect your own callbacks
         self._connect_mouse_events()
@@ -184,13 +219,32 @@ class SpectraTools(Container):
         vipadata_widget = QWidget()
         vipadata_layout = QVBoxLayout()
         vipadata_widget.setLayout(vipadata_layout)
-        vipadata_text = QLabel(text='Display the raw VIPA image of a single pixel in an active brimfile layer. If available, the spectral line is overlaid.')
+        vipadata_text = QLabel(text='Display the raw VIPA image of a single pixel in an active brimfile layer. If available, the spectral line is overlaid. Pan/zoom with mouse; adjust contrast with the histogram on the right.')
         vipadata_text.setStyleSheet("color: #626972;")
         vipadata_text.setAlignment(Qt.AlignCenter)
         vipadata_text.setWordWrap(True)
         vipadata_text.setMaximumHeight(70)
+        self._vipa_coord_label = QLabel('')
+        self._vipa_coord_label.setStyleSheet("color: #D1D2D4;")
+        self._vipa_coord_label.setAlignment(Qt.AlignCenter)
         vipadata_layout.addWidget(vipadata_text)
-        vipadata_layout.addWidget(FigureCanvas(self.fig_vipa_rawdata))
+        vipadata_layout.addWidget(self._vipa_coord_label)
+        self._vipa_line_checkbox = QCheckBox('Show spectral line')
+        self._vipa_line_checkbox.setChecked(True)
+        self._vipa_line_checkbox.stateChanged.connect(
+            lambda state: self._vipa_line_fill.setVisible(bool(state))
+        )
+        vipa_hist_container = QWidget()
+        vipa_hist_layout = QVBoxLayout()
+        vipa_hist_layout.setContentsMargins(0, 0, 0, 0)
+        vipa_hist_layout.addWidget(self._vipa_hist)
+        vipa_hist_layout.addWidget(self._vipa_line_checkbox)
+        vipa_hist_container.setLayout(vipa_hist_layout)
+        vipa_display_layout = QHBoxLayout()
+        vipa_display_layout.setContentsMargins(0, 0, 0, 0)
+        vipa_display_layout.addWidget(self._vipa_gw)
+        vipa_display_layout.addWidget(vipa_hist_container)
+        vipadata_layout.addLayout(vipa_display_layout)
 
         # Spectral Image tab
         spectral_image_widget = QWidget()
@@ -425,33 +479,25 @@ class SpectraTools(Container):
                 return False
         return True
 
-    def _linewidth_data_to_points(self, linewidth_data, x_start, y_start, x_end, y_end):
-        """Convert a linewidth in image data units (pixels) to matplotlib points."""
-        #TODO: check if this methd is robust to scaling of the axis
-        # look at https://stackoverflow.com/questions/43495016/matplotlib-line-width-based-on-axis-not-on-points for alternative methods
-        if linewidth_data is None:
-            linewidth_data = 1.0
-        linewidth_data = float(linewidth_data)
-        if linewidth_data <= 0:
-            return 0.1
+    def set_vipa_ghz_per_pixel(self, ghz_per_pixel):
+        """Set the GHz per pixel calibration used for the scale bar in the VIPA raw image view."""
+        self._vipa_ghz_per_pixel = ghz_per_pixel
 
-        # Build a unit normal to the spectral line in data coordinates.
-        dx = float(x_end) - float(x_start)
-        dy = float(y_end) - float(y_start)
-        seg_len = np.hypot(dx, dy)
-        if seg_len == 0:
-            nx, ny = 1.0, 0.0
-        else:
-            nx, ny = -dy / seg_len, dx / seg_len
-
-        xm = 0.5 * (float(x_start) + float(x_end))
-        ym = 0.5 * (float(y_start) + float(y_end))
-        p0 = self.ax_vipa_rawdata.transData.transform((xm, ym))
-        p1 = self.ax_vipa_rawdata.transData.transform((xm + nx * linewidth_data, ym + ny * linewidth_data))
-        linewidth_pixels = float(np.hypot(*(p1 - p0)))
-        linewidth_points = linewidth_pixels * 72.0 / self.fig_vipa_rawdata.dpi
-
-        return max(linewidth_points, 0.1)
+    def _update_vipa_scalebar(self, image_shape, ghz_per_pixel):
+        if ghz_per_pixel is None or ghz_per_pixel <= 0:
+            self._vipa_sb_line.setData([], [])
+            self._vipa_sb_text.setText('')
+            return
+        nrows, ncols = image_shape[:2]
+        target_ghz = ncols * ghz_per_pixel * 0.15
+        magnitude = 10 ** np.floor(np.log10(max(target_ghz, 1e-9)))
+        ghz_bar = min([1, 2, 5, 10], key=lambda v: abs(v * magnitude - target_ghz)) * magnitude
+        px_bar = ghz_bar / ghz_per_pixel
+        x0 = ncols * 0.05
+        y0 = nrows * 0.93
+        self._vipa_sb_line.setData([x0, x0 + px_bar], [y0, y0])
+        self._vipa_sb_text.setPos(x0 + px_bar / 2, nrows * 0.88)
+        self._vipa_sb_text.setText(f'{ghz_bar:.3g} GHz')
 
     def _load_VIPA_rawdata(self, coord, image_layer):
         if not self._mouse_event_is_valid(coord, image_layer):
@@ -463,33 +509,18 @@ class SpectraTools(Container):
         raw_image, spectral_line, linewidth = single_point_VIPA.get_raw_spectrum_in_image(data_group, coord)
         raw_image = np.asarray(raw_image)
 
-        self.ax_vipa_rawdata.clear()
-        self.ax_vipa_rawdata.set_axis_off()
-        self.ax_vipa_rawdata.imshow(raw_image, cmap='gray', origin='upper')
+        self._vipa_img.setImage(raw_image, axisOrder='row-major')
+        nrows, ncols = raw_image.shape[:2]
+        self._vipa_vb.setRange(xRange=(0, ncols), yRange=(0, nrows), padding=0.05)
+
         if spectral_line is not None:
             y_start, x_start, y_end, x_end = spectral_line
-            linewidth_data = linewidth if linewidth is not None else 1.0
-            linewidth_points = self._linewidth_data_to_points(
-                linewidth_data,
-                x_start,
-                y_start,
-                x_end,
-                y_end,
-            )
-            self.ax_vipa_rawdata.plot(
-                [x_start, x_end],
-                [y_start, y_end],
-                color="#D27F75",
-                alpha=0.2,
-                linewidth=linewidth_points,
-                solid_capstyle='round',
-            )
-        self.ax_vipa_rawdata.set_title(
-            f'Raw VIPA image at pixel [{coord[0]},{coord[1]},{coord[2]}]',
-            color='white',
-            fontsize=12,
-        )
-        self.fig_vipa_rawdata.canvas.draw()
+            self._vipa_line_fill.setData(x = [x_start, x_end], y = [y_start, y_end])
+        else:
+            self._vipa_line_fill.setData([], [])
+
+        self._update_vipa_scalebar(raw_image.shape, self._vipa_ghz_per_pixel)
+        self._vipa_coord_label.setText(f'Raw VIPA image at pixel [{coord[0]},{coord[1]},{coord[2]}]')
 
     def _load_spectrum(self, coord, image_layer):
         if not self._mouse_event_is_valid(coord, image_layer):
@@ -537,7 +568,7 @@ class SpectraTools(Container):
         self.ax_plot_spectrum.set_ylabel('PSD', color='white')
         if not self._autoscale_checkbox.isChecked():
             self.ax_plot_spectrum.set_ylim(self.spectrum_ymin, self.spectrum_ymax)
-        self.ax_plot_spectrum.set_title('Spectrum of ' + image_layer.name + '\nat pixel [{},{},{}]'.format(coord[0],coord[1],coord[2]), color='White', fontsize = 12)
+        self.ax_plot_spectrum.set_title('Spectrum of ' + image_layer.name + '\nat pixel [{},{},{}]'.format(coord[0],coord[1],coord[2]), color='White', fontsize = 10)
         self.fig_plot_spectrum.canvas.draw()
 
     def _update_metadata_table(self):
