@@ -29,8 +29,6 @@ References:
 Replace code below according to your needs.
 """
 
-from cProfile import label
-from hmac import new
 from magicgui.widgets import Container
 import napari
 import napari.utils
