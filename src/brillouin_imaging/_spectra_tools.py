@@ -116,8 +116,14 @@ class SpectraTools(Container):
         self._vipa_hist.fillHistogram(fill=True, color=pg.mkColor('#3F4852'))
         try:
             self._vipa_hist.gradient.loadPreset('grey')
-            self._vipa_hist.gradient.allowAdd = False
-            self._vipa_hist.gradient.allowRemove = False
+            gradient = self._vipa_hist.gradient
+            gradient.allowAdd = False
+            gradient.allowRemove = False
+            for tick in list(gradient.ticks.keys()):
+                tick.hide()
+                tick.movable = False
+                tick.removeAllowed = False
+
         except Exception:
             pass
         try:
